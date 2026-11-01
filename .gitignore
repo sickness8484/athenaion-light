@@ -1,0 +1,18 @@
+node_modules/
+out/
+snapshots/
+audio/
+*.log
+.DS_Store
+Thumbs.db
+
+# Geometry is generated; the original far grid is fetched and SHA-256 verified.
+generated/*
+
+# Upstream showcase images are linked from README.upstream.md.
+media/
+refs/
+
+# Built release and local preview configuration
+dist/
+.openai/

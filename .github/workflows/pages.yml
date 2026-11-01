@@ -1,0 +1,88 @@
+name: Build and publish Athenaion Light
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      include_high_terrain:
+        description: Include the original high-resolution terrain in addition to preview (larger download)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: athenaion-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      ATHENAION_BAKE_WORKERS: '2'
+      ATHENAION_BAKE_JOBS: '2'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Fetch verified upstream assets
+        run: npm run assets
+      - name: Source checks and tests
+        run: |
+          npm run check
+          npm test
+      - name: Fingerprint geometry inputs
+        id: bake-inputs
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { bakeSourceHash } from './tools/bake-plan.mjs';
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `hash=${bakeSourceHash()}\n`);
+          NODE
+      - name: Restore exact-source geometry bakes
+        uses: actions/cache@v4
+        with:
+          path: generated
+          key: athenaion-bake-v2-${{ runner.os }}-${{ steps.bake-inputs.outputs.hash }}-${{ inputs.include_high_terrain || false }}
+      - name: Bake original-quality geometry before publication
+        env:
+          INCLUDE_HIGH: ${{ inputs.include_high_terrain || false }}
+        run: |
+          if [ "$INCLUDE_HIGH" = "true" ]; then
+            npm run bake -- --quality high
+          else
+            npm run bake
+          fi
+      - name: Package lossless static assets
+        run: npm run build
+      - name: Verify published bytes
+        run: |
+          node tools/verify-site.mjs
+          node tools/verify-site-http.mjs
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

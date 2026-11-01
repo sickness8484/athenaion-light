@@ -1,0 +1,971 @@
+{
+  "upstreamCommit": "9b8bd23b39c458a50fb1201037360047781c45b5",
+  "scenarios": [
+    {
+      "label": "tight-budget",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 677,
+      "tris": 49506,
+      "lodScale": 0.219,
+      "counts": [
+        [
+          "cypress",
+          [
+            0,
+            1,
+            36,
+            284
+          ]
+        ],
+        [
+          "olive",
+          [
+            0,
+            1,
+            14,
+            259
+          ]
+        ],
+        [
+          "shrub",
+          [
+            0,
+            0,
+            12,
+            70
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "4cc7b5fc6af4e703bc78b2c1e18db285ef5062329ae0f967134b60f2785ea917",
+      "matrices": "f89c071c2bd3e65b425afa353e91267e2a01c92639bd247b1dabe7cff48997c7",
+      "colors": "8e9a8a9d0236033d3815fa8da76d8113295e37e4f2d65a94fe0f3e24ce600fc2",
+      "parts": "1d17fe13b2acb589112d0aca03f2952b5651509e62a1713a38da743b266c2f8b",
+      "allocatedPages": 12
+    },
+    {
+      "label": "stationary",
+      "updated": false,
+      "instances": 1188,
+      "drawn": 677,
+      "tris": 49506,
+      "lodScale": 0.219,
+      "counts": [
+        [
+          "cypress",
+          [
+            0,
+            1,
+            36,
+            284
+          ]
+        ],
+        [
+          "olive",
+          [
+            0,
+            1,
+            14,
+            259
+          ]
+        ],
+        [
+          "shrub",
+          [
+            0,
+            0,
+            12,
+            70
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "4cc7b5fc6af4e703bc78b2c1e18db285ef5062329ae0f967134b60f2785ea917",
+      "matrices": "f89c071c2bd3e65b425afa353e91267e2a01c92639bd247b1dabe7cff48997c7",
+      "colors": "8e9a8a9d0236033d3815fa8da76d8113295e37e4f2d65a94fe0f3e24ce600fc2",
+      "parts": "1d17fe13b2acb589112d0aca03f2952b5651509e62a1713a38da743b266c2f8b",
+      "allocatedPages": 12
+    },
+    {
+      "label": "tiny-move",
+      "updated": false,
+      "instances": 1188,
+      "drawn": 677,
+      "tris": 49506,
+      "lodScale": 0.219,
+      "counts": [
+        [
+          "cypress",
+          [
+            0,
+            1,
+            36,
+            284
+          ]
+        ],
+        [
+          "olive",
+          [
+            0,
+            1,
+            14,
+            259
+          ]
+        ],
+        [
+          "shrub",
+          [
+            0,
+            0,
+            12,
+            70
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "4cc7b5fc6af4e703bc78b2c1e18db285ef5062329ae0f967134b60f2785ea917",
+      "matrices": "f89c071c2bd3e65b425afa353e91267e2a01c92639bd247b1dabe7cff48997c7",
+      "colors": "8e9a8a9d0236033d3815fa8da76d8113295e37e4f2d65a94fe0f3e24ce600fc2",
+      "parts": "1d17fe13b2acb589112d0aca03f2952b5651509e62a1713a38da743b266c2f8b",
+      "allocatedPages": 12
+    },
+    {
+      "label": "camera-move",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 669,
+      "tris": 46306,
+      "lodScale": 0.204,
+      "counts": [
+        [
+          "cypress",
+          [
+            0,
+            1,
+            30,
+            290
+          ]
+        ],
+        [
+          "olive",
+          [
+            0,
+            1,
+            14,
+            257
+          ]
+        ],
+        [
+          "shrub",
+          [
+            0,
+            0,
+            10,
+            66
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "75957360dd4dbf2dde3527a198c1786c9c9222059a2174b8a93b4ce78f02515d",
+      "matrices": "9b8451bc21c0b07b577c5fbc4eb89b128a904192739ca3fb19f4b0fd4b9ab54e",
+      "colors": "8d36aa874e04a4259f83448fea77802c54e483e365d80bfdb238d51368b7e736",
+      "parts": "e80069a8689b8a26c0879ad022c11e347bbaf43cc0a00a00b0997f0fc1902400",
+      "allocatedPages": 12
+    },
+    {
+      "label": "more-detail",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 923,
+      "tris": 1205456,
+      "lodScale": 1,
+      "counts": [
+        [
+          "cypress",
+          [
+            5,
+            12,
+            175,
+            137
+          ]
+        ],
+        [
+          "olive",
+          [
+            4,
+            11,
+            141,
+            161
+          ]
+        ],
+        [
+          "shrub",
+          [
+            4,
+            14,
+            39,
+            220
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "404c8954fd849f9bd2a62cf1c32d013c0c5d161b446dabfdc033a6f321e267de",
+      "matrices": "97d49abd4a64624cd58252302faad27d64763ae060632e9c7b2657e731251985",
+      "colors": "623864e78c2ae96ddc72c8e4cbf01c05bc6f2e91dd525a87818a786239b72029",
+      "parts": "e45df3a8e3db2658259b9ec3ab45bd1710a6d5d447c98cf7a41b3299b276f49e",
+      "allocatedPages": 12
+    },
+    {
+      "label": "hysteresis-near",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 922,
+      "tris": 1223052,
+      "lodScale": 1,
+      "counts": [
+        [
+          "cypress",
+          [
+            5,
+            13,
+            174,
+            137
+          ]
+        ],
+        [
+          "olive",
+          [
+            4,
+            11,
+            141,
+            160
+          ]
+        ],
+        [
+          "shrub",
+          [
+            4,
+            14,
+            40,
+            219
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "e74341f7772fecc589ac2ede2e240759dfe217a1276e5d0dcfa3174d2c6aa47d",
+      "matrices": "557cdce87183ec16da0e1d05cd0fbd17dabefce005470202f6cfe3a4c37acd6d",
+      "colors": "80f9b434951db0a99350e7a2bf519af2e50352cc4982badded2b947a5701fb92",
+      "parts": "ea0f2f25a4995eb6b4f7f5dc39dbc12042bed4a1251a5864a4f20498cb88d378",
+      "allocatedPages": 12
+    },
+    {
+      "label": "hysteresis-far",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 915,
+      "tris": 1311526,
+      "lodScale": 1,
+      "counts": [
+        [
+          "cypress",
+          [
+            5,
+            16,
+            171,
+            134
+          ]
+        ],
+        [
+          "olive",
+          [
+            4,
+            14,
+            141,
+            156
+          ]
+        ],
+        [
+          "shrub",
+          [
+            4,
+            17,
+            40,
+            213
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "e0e3addf3536e8e28c4362ff05282aaf6764272ca938d046f4d28a83f0bd488a",
+      "matrices": "1094fe6abb8107eadaaed7f82c375129c3c48e398dc1074db856a7033d740b98",
+      "colors": "1f544f57afebd495824464fc74c1408bc186a88f9f8b39a10d1ea1f7c96f45b0",
+      "parts": "293f67ae3e94c0f4cb05b9c0a2b61c4eb6d85af73ee53cdc5d4d4e87020da05f",
+      "allocatedPages": 12
+    },
+    {
+      "label": "very-tight-budget",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 376,
+      "tris": 1468,
+      "lodScale": 0.058,
+      "counts": [
+        [
+          "cypress",
+          [
+            0,
+            0,
+            1,
+            256
+          ]
+        ],
+        [
+          "olive",
+          [
+            0,
+            0,
+            1,
+            102
+          ]
+        ],
+        [
+          "shrub",
+          [
+            0,
+            0,
+            0,
+            16
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "fdb36a889d01d590b388980b7de01f08d90f1e141c0fc507d0763a4a5f15294c",
+      "matrices": "3030c0e221c5f1cee19b31c7ee2d09deb1f9090cfddebbaad78e4554a8e24a21",
+      "colors": "d639db9c0727b09050f2bfaf3feb41f3483efc7c0f76bd2a97d79544de4cc6f0",
+      "parts": "6e18a56912ab4d16575fe676d7f960e4c6687efcd28ac23410a1346f1dadd4ba",
+      "allocatedPages": 12
+    },
+    {
+      "label": "ultra-default",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 943,
+      "tris": 2660900,
+      "lodScale": 1,
+      "counts": [
+        [
+          "cypress",
+          [
+            12,
+            22,
+            201,
+            94
+          ]
+        ],
+        [
+          "olive",
+          [
+            12,
+            22,
+            169,
+            118
+          ]
+        ],
+        [
+          "shrub",
+          [
+            10,
+            21,
+            64,
+            198
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "947c0b0b8738bf49e929d10d62dbfe786f4f9508c8bfda5f2521fb7c58533896",
+      "matrices": "361f1dd81f0928c7f9d02cd47d9029fa5b0cc8b91f6c7e779481c942b410769b",
+      "colors": "a3b79589dd4e045e3278e477aad96904aba2d1c563329f150c9bdca2712ad830",
+      "parts": "c85ba430c7978cfbb89c861160fb02f4cd3c20681ec90464fee03e6268493b2c",
+      "allocatedPages": 13
+    },
+    {
+      "label": "preview-default",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 880,
+      "tris": 734480,
+      "lodScale": 1,
+      "counts": [
+        [
+          "cypress",
+          [
+            2,
+            12,
+            152,
+            157
+          ]
+        ],
+        [
+          "olive",
+          [
+            1,
+            14,
+            127,
+            170
+          ]
+        ],
+        [
+          "shrub",
+          [
+            0,
+            17,
+            35,
+            193
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "53c002fb2e501daef420f2894006433680bcbc881d56c2863c97abe58a5f916e",
+      "matrices": "02ab17e793233ee224aa8989c0936edb35b07c742a3667197fd4d0df78772692",
+      "colors": "540b41931cf7b751b65ebae00e0bae87f0ee47bbed8f164744473d203cdd0fd9",
+      "parts": "8e8f340c9b58f2f9cbc7913d09e4c89f7026813122920fdb3d2c2beae1b61e9a",
+      "allocatedPages": 13
+    },
+    {
+      "label": "forced-near",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 880,
+      "tris": 49080000,
+      "lodScale": 1,
+      "counts": [
+        [
+          "cypress",
+          [
+            323,
+            0,
+            0,
+            0
+          ]
+        ],
+        [
+          "olive",
+          [
+            312,
+            0,
+            0,
+            0
+          ]
+        ],
+        [
+          "shrub",
+          [
+            245,
+            0,
+            0,
+            0
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "1a525ecaef03b7480881e91f4da2881581f2eec50e80a5b12ececa39d4f3f648",
+      "matrices": "cdb34c8e3533687a795e737ca39b96f7733985bf2fdddb601cabc15d2b799e2e",
+      "colors": "5807d8adc108ae7b885832e610cf4d7ea09181ae3e9647f0f03f7d019d79a318",
+      "parts": "f21b56dab451b0257ff573458a6144a94ab72a45193879f665b6c510004a9b5b",
+      "allocatedPages": 64
+    },
+    {
+      "label": "forced-mid",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 880,
+      "tris": 254640,
+      "lodScale": 1,
+      "counts": [
+        [
+          "cypress",
+          [
+            0,
+            0,
+            323,
+            0
+          ]
+        ],
+        [
+          "olive",
+          [
+            0,
+            0,
+            312,
+            0
+          ]
+        ],
+        [
+          "shrub",
+          [
+            0,
+            0,
+            245,
+            0
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "ecf2b7e449204e66a1bd28a750ff4c523647a5d636bcff9d3701264fdafb1291",
+      "matrices": "cdb34c8e3533687a795e737ca39b96f7733985bf2fdddb601cabc15d2b799e2e",
+      "colors": "5807d8adc108ae7b885832e610cf4d7ea09181ae3e9647f0f03f7d019d79a318",
+      "parts": "881de0c436245eb09b2695fa5ebc479e28818d01208ab215ae46be25152d63fa",
+      "allocatedPages": 64
+    },
+    {
+      "label": "forced-far",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 880,
+      "tris": 1760,
+      "lodScale": 1,
+      "counts": [
+        [
+          "cypress",
+          [
+            0,
+            0,
+            0,
+            323
+          ]
+        ],
+        [
+          "olive",
+          [
+            0,
+            0,
+            0,
+            312
+          ]
+        ],
+        [
+          "shrub",
+          [
+            0,
+            0,
+            0,
+            245
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "f4dcbe894fe0ba3e88cf0c558488dc3426784b991a21f212fc61bc5227ce44a2",
+      "matrices": "cdb34c8e3533687a795e737ca39b96f7733985bf2fdddb601cabc15d2b799e2e",
+      "colors": "5807d8adc108ae7b885832e610cf4d7ea09181ae3e9647f0f03f7d019d79a318",
+      "parts": "fac23a3e02d8019559630060c419be86c9d8452c30e2713e12c0daac49db6ee8",
+      "allocatedPages": 64
+    },
+    {
+      "label": "forced-clamped",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 880,
+      "tris": 1760,
+      "lodScale": 1,
+      "counts": [
+        [
+          "cypress",
+          [
+            0,
+            0,
+            0,
+            323
+          ]
+        ],
+        [
+          "olive",
+          [
+            0,
+            0,
+            0,
+            312
+          ]
+        ],
+        [
+          "shrub",
+          [
+            0,
+            0,
+            0,
+            245
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "16070db05149bc7b4ee3ff7c0e9c6cb6b355b7e588a22e5e41551f0560e50888",
+      "matrices": "cdb34c8e3533687a795e737ca39b96f7733985bf2fdddb601cabc15d2b799e2e",
+      "colors": "5807d8adc108ae7b885832e610cf4d7ea09181ae3e9647f0f03f7d019d79a318",
+      "parts": "fac23a3e02d8019559630060c419be86c9d8452c30e2713e12c0daac49db6ee8",
+      "allocatedPages": 64
+    },
+    {
+      "label": "reset-history",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 776,
+      "tris": 180974,
+      "lodScale": 0.348,
+      "counts": [
+        [
+          "cypress",
+          [
+            1,
+            1,
+            54,
+            267
+          ]
+        ],
+        [
+          "olive",
+          [
+            0,
+            4,
+            32,
+            265
+          ]
+        ],
+        [
+          "shrub",
+          [
+            0,
+            1,
+            16,
+            135
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "ffcc31391ae8e0b4e62df400b7a8ad1c384b6154193cd99ac4de9ef4457038bf",
+      "matrices": "31a724dc51fb388e5c1ba7e9cf3f9bc7c574942fe838b4c9e6beb8eb7fc44590",
+      "colors": "894d9e82d7084866ece99fc5c71a81b2036bd30019b4aec7863228a97d314d93",
+      "parts": "c24276df9c21a4712c55903ee8bf1f428865553b8201d21ebed93f1847567b20",
+      "allocatedPages": 64
+    },
+    {
+      "label": "portrait",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 586,
+      "tris": 181376,
+      "lodScale": 0.292,
+      "counts": [
+        [
+          "cypress",
+          [
+            1,
+            1,
+            44,
+            208
+          ]
+        ],
+        [
+          "olive",
+          [
+            0,
+            4,
+            24,
+            203
+          ]
+        ],
+        [
+          "shrub",
+          [
+            0,
+            3,
+            11,
+            87
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "48312415ffb0f7952fbc0ef972717b8df345d6d004391f4a5b9aabd21f185fbb",
+      "matrices": "088ee81ee56d45673b636979b1f2c5d0779356fd0fe00967b85ed088f2941df7",
+      "colors": "a060fd8125741f8981aaf85e5dd9492fd6dc8d2d32f15529824528beee571c28",
+      "parts": "f7bb3d4547ea7b96459e6ec653a5d20873a60bc09d14def65e6c687de76abb78",
+      "allocatedPages": 64
+    },
+    {
+      "label": "high-resolution",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 983,
+      "tris": 4723850,
+      "lodScale": 1,
+      "counts": [
+        [
+          "cypress",
+          [
+            22,
+            38,
+            217,
+            59
+          ]
+        ],
+        [
+          "olive",
+          [
+            16,
+            73,
+            166,
+            73
+          ]
+        ],
+        [
+          "shrub",
+          [
+            19,
+            44,
+            123,
+            133
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "7e15dfb50ebe021af3492ac7e4f918ff692d7c8e1bd75af2b6c228888e2cfc46",
+      "matrices": "208c47c8b1415544d03a3a6adcb074cf63395f96930a09b93ab08b01b1bfc4dd",
+      "colors": "f97714126d9ed0b68da82862f9d6481ed4ffa3bba5f02c4ab08fdd9cc43bf49f",
+      "parts": "5cc566fb05a0fcfce472bd1a830e6ecb95565fd82d61b2b1af315913a2634a4e",
+      "allocatedPages": 65
+    },
+    {
+      "label": "reverse-view",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 687,
+      "tris": 694602,
+      "lodScale": 1,
+      "counts": [
+        [
+          "cypress",
+          [
+            0,
+            9,
+            201,
+            22
+          ]
+        ],
+        [
+          "olive",
+          [
+            0,
+            45,
+            145,
+            45
+          ]
+        ],
+        [
+          "shrub",
+          [
+            0,
+            8,
+            78,
+            134
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "2bdceeab77115f63cb965ff09992540bc3d50d469cb054e753f208ac488ce89e",
+      "matrices": "4a72f4f51ef29da321ecb9d1eb87aa23cb555f2722e2f4c5b1274341b546623d",
+      "colors": "bbdb2247f2c24d53e2ac0b2673893435b6798e7f7903dd3abb8447b40b41efaa",
+      "parts": "2614b8897b83ffb45f9367413c4ed994074829c2d94880aec6d19745f8427db9",
+      "allocatedPages": 65
+    },
+    {
+      "label": "low-sun",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 1019,
+      "tris": 4792594,
+      "lodScale": 1,
+      "counts": [
+        [
+          "cypress",
+          [
+            20,
+            50,
+            233,
+            45
+          ]
+        ],
+        [
+          "olive",
+          [
+            16,
+            84,
+            181,
+            59
+          ]
+        ],
+        [
+          "shrub",
+          [
+            15,
+            45,
+            138,
+            133
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "aeb3b1fbc8b80b6afc397125aa0dd0efc8303e9a284aa822d82699113d92c4df",
+      "matrices": "da6aa8b3ec5270899111e30fe27b3a7b48e37dca26bb074f41c56855b7f02ca3",
+      "colors": "57d3036a4787276c2d2b60565f7e3a8670c87282bf9bafe2994835a44fc66aaf",
+      "parts": "1bb9e9fff6a8038edd502ad139f2e6d85f06cde6cd92c5f9e27007474dc39b3d",
+      "allocatedPages": 66
+    },
+    {
+      "label": "all-clipped",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 0,
+      "tris": 0,
+      "lodScale": 1,
+      "counts": [
+        [
+          "cypress",
+          [
+            0,
+            0,
+            0,
+            0
+          ]
+        ],
+        [
+          "olive",
+          [
+            0,
+            0,
+            0,
+            0
+          ]
+        ],
+        [
+          "shrub",
+          [
+            0,
+            0,
+            0,
+            0
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "aeb3b1fbc8b80b6afc397125aa0dd0efc8303e9a284aa822d82699113d92c4df",
+      "matrices": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "colors": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "parts": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "allocatedPages": 66
+    },
+    {
+      "label": "return-shot",
+      "updated": true,
+      "instances": 1188,
+      "drawn": 677,
+      "tris": 49506,
+      "lodScale": 0.219,
+      "counts": [
+        [
+          "cypress",
+          [
+            0,
+            1,
+            36,
+            284
+          ]
+        ],
+        [
+          "olive",
+          [
+            0,
+            1,
+            14,
+            259
+          ]
+        ],
+        [
+          "shrub",
+          [
+            0,
+            0,
+            12,
+            70
+          ]
+        ],
+        [
+          "empty",
+          []
+        ]
+      ],
+      "history": "4cc7b5fc6af4e703bc78b2c1e18db285ef5062329ae0f967134b60f2785ea917",
+      "matrices": "f89c071c2bd3e65b425afa353e91267e2a01c92639bd247b1dabe7cff48997c7",
+      "colors": "8e9a8a9d0236033d3815fa8da76d8113295e37e4f2d65a94fe0f3e24ce600fc2",
+      "parts": "1d17fe13b2acb589112d0aca03f2952b5651509e62a1713a38da743b266c2f8b",
+      "allocatedPages": 66
+    }
+  ]
+}

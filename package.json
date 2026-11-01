@@ -1,0 +1,23 @@
+{
+  "name": "athenaion",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "serve": "node tools/preview-site.mjs",
+    "render": "node tools/render.mjs",
+    "test": "node --test --experimental-test-isolation=none --test-concurrency=1 test/*.test.mjs tools/*.test.mjs",
+    "preview": "node tools/preview-site.mjs",
+    "assets": "node tools/fetch-upstream-assets.mjs",
+    "bake": "node tools/fetch-upstream-assets.mjs && node tools/bake-site.mjs",
+    "bake:high": "node tools/fetch-upstream-assets.mjs && node tools/bake-site.mjs --quality high",
+    "build": "node tools/build-site.mjs",
+    "check": "node tools/check.mjs",
+    "verify": "node tools/verify-site.mjs"
+  },
+  "dependencies": {
+    "pngjs": "^7.0.0",
+    "puppeteer-core": "^25.14.0",
+    "three": "^0.186.1"
+  }
+}
