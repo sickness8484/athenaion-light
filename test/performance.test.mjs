@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AdaptiveResolution, getRuntimeProfile, viewportSize } from '../src/core/performance.js';
+import { AdaptiveResolution, getRuntimeProfile, viewportSize, runtimeViewport } from '../src/core/performance.js';
 import { getQuality, withRuntimeProfile } from '../src/core/quality.js';
 test('runtime profiles preserve authored geometry and independent original presets', () => {
   for (const name of ['preview','high','ultra']) for (const profile of ['auto','quality','fast']) {
@@ -43,6 +43,32 @@ test('adaptive resolution handles stalls, respects floor and recovers slowly', (
 test('adaptive changes are rate limited even at low frame rates', () => {
   const c=new AdaptiveResolution(getRuntimeProfile('auto'));
   let changes=0,last=-Infinity;
-  for(let i=1;i<=100;i++) if(c.observe(60,i*60)){assert.ok(i*60-last>=650);last=i*60;changes++;}
+  for(let i=1;i<=100;i++) if(c.observe(60,i*60)){assert.ok(i*60-last>=1200);last=i*60;changes++;}
   assert.ok(changes>=2); assert.ok(changes<=4);
+});
+
+test('phone and Retina views use physical pixels without exceeding the selected budget', () => {
+  const phone = getRuntimeProfile('auto', true);
+  assert.deepEqual(runtimeViewport(390, 844, phone, 1, 3), { width: 679, height: 1471 });
+  assert.deepEqual(runtimeViewport(390, 844, phone, phone.minScale, 3), { width: 577, height: 1250 });
+  assert.deepEqual(runtimeViewport(1920, 1080, getRuntimeProfile('auto'), 1, 1), { width: 1920, height: 1080 });
+  for (const name of ['auto', 'quality', 'fast']) for (const mobile of [false, true]) {
+    const p = getRuntimeProfile(name, mobile);
+    for (const [w, h] of [[390, 844], [1440, 900], [3840, 2160]]) for (const dpr of [1, 2, 3]) {
+      const size = runtimeViewport(w, h, p, 1, dpr);
+      assert.ok(size.width * size.height <= p.pixelBudget);
+      assert.ok(size.width <= w * Math.min(dpr, p.maxPixelRatio));
+      assert.ok(Math.abs(size.width - size.height * w / h) <= 1 + w / h);
+    }
+  }
+  assert.deepEqual(runtimeViewport(390, 844, phone, 1, NaN), { width: 390, height: 844 });
+});
+
+test('sustained load cannot collapse the sharpness floor or downscale the quality profile', () => {
+  for (const name of ['auto', 'quality', 'fast']) {
+    const p = getRuntimeProfile(name), c = new AdaptiveResolution(p);
+    for (let i = 1; i <= 100; i++) c.observe(120, i * 120);
+    assert.ok(c.scale >= (name === 'fast' ? 0.8 : 0.85));
+    if (name === 'quality') assert.equal(c.scale, 1);
+  }
 });

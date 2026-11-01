@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { SKY } from '../src/core/sky.js';
 import { ATMO } from '../src/core/atmosphere.js';
-import { getRuntimeProfile } from '../src/core/performance.js';
+import { getRuntimeProfile, runtimeViewport } from '../src/core/performance.js';
 import { mockEngine } from './helpers/mock-engine.js';
 
 class Emitter {
@@ -45,8 +45,8 @@ test('interactive RAF sleeps after refinement, ignores skipped draws in adaptati
   const previous = new Map(Object.keys(replacements).map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   const previousNow = Object.getOwnPropertyDescriptor(performance, 'now');
   const uniformValues = [SKY.uCloudSteps, SKY.uSkyTime, ATMO.uAtmoTime].map((uniform) => [uniform, uniform.value]);
-  const advance = () => {
-    now += 16;
+  const advance = (step = 16) => {
+    now += step;
     const batch = [...frames.values()]; frames.clear();
     for (const callback of batch) callback(now);
   };
@@ -96,6 +96,23 @@ test('interactive RAF sleeps after refinement, ignores skipped draws in adaptati
     assert(engine.time > beforeTime);
     assert.equal(engine._accFrames, 1);
     assert.equal(frames.size, 1);
+    doc.getElementById('motion').emit('click'); settle();
+
+    // A slow moving camera may use the bounded floor. Animation with a stationary
+    // camera must restore physical-pixel resolution instead of remaining there.
+    win.devicePixelRatio = 2;
+    appEvents.emit('resize');
+    app.controls.emit('start');
+    for (let i = 0; i < 65; i++) { app.controls.emit('change'); advance(100); }
+    assert.equal(win.__PERF.scale, profile.minScale);
+    assert.equal(engine.width, runtimeViewport(1024, 768, profile, profile.minScale, 2).width);
+    app.controls.emit('end');
+    doc.getElementById('motion').emit('click');
+    for (let i = 0; i < 30; i++) advance();
+    assert.equal(win.__PERF.animated, true);
+    assert.equal(win.__PERF.moving, false);
+    assert.equal(win.__PERF.scale, 1);
+    assert.equal(engine.width, runtimeViewport(1024, 768, profile, 1, 2).width);
     doc.getElementById('motion').emit('click'); settle();
     assert.deepEqual(errors, []);
     app.stop(); app.controls.emit('change');

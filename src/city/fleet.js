@@ -242,6 +242,7 @@ export function portMovers(engine, movers, mats) {
   const wakeMat = wakeMaterial();
   for (const m of movers) {
     const o = new THREE.Group();
+    o.userData.dynamicTransform = true;
     const w = new THREE.Mesh(m.wood.toGeometry(), mats.wood); w.castShadow = true; w.receiveShadow = true; o.add(w);
     if (!m.sail.empty) { const sl = new THREE.Mesh(m.sail.toGeometry(), mats.sail); sl.castShadow = true; sl.receiveShadow = true; o.add(sl); }
     const wk = new THREE.Mesh(wakeGeometry(m.L, m.B), wakeMat); wk.castShadow = false; wk.userData.castShadow = false; wk.renderOrder = 2; o.add(wk);

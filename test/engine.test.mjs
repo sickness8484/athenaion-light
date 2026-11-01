@@ -53,6 +53,8 @@ test('interactive motion resets accumulation, stop restores shadows, refinement 
     for (const now of [112, 128, 144]) assert.equal(frame(false, false, now), true);
     assert.equal(engine._accFrames, 4);
     assert.equal(engine.pipeline.state.final, true);
+    assert.equal(engine.registry.clouds.state.final, true);
+    assert.equal(engine.registry.clouds.state.moving, false);
     assert.equal(engine.registry.water.reflection.state.final, true);
     assert.deepEqual(events.filter(e => e[0] === 'sample').map(e => e[1].refresh), [true, false, true, true, false, false, false]);
     assert.equal(events.filter(e => e[0] === 'begin').length, 4);
@@ -112,6 +114,7 @@ test('offline still rendering disables interactive throttles and refreshes shado
   try {
     assert.equal(await engine.renderStill(3), 'data:image/png;base64,test');
     assert.equal(engine.pipeline.state, null);
+    assert.equal(engine.registry.clouds.state, null);
     assert.equal(engine.registry.water.reflection.state, null);
     const updates = events.filter(e => e[0] === 'lighting');
     assert.equal(updates.length, 3);
@@ -140,4 +143,27 @@ test('a failed sample restores the unjittered camera before propagating the rend
   assert.throws(() => engine.renderSample(2), /injected sample failure/);
   assert.deepEqual(engine.camera.position.toArray(), position);
   assert.deepEqual(engine.camera.projectionMatrix.toArray(), projection);
+});
+
+test('scene preparation compiles HDR and volume programs, restoring the previous target on success or failure', async () => {
+  const { engine } = mockEngine();
+  const previous = { name: 'previous' }, hdr = { name: 'hdr' }, volume = new THREE.Scene();
+  let target = previous;
+  const compiled = [];
+  engine.pipeline.target = hdr;
+  engine.registry.clouds.volumePasses = [{ scene: volume }];
+  engine.renderer.getRenderTarget = () => target;
+  engine.renderer.setRenderTarget = (value) => { target = value; };
+  engine.renderer.compileAsync = async (scene, camera) => {
+    assert.equal(target, hdr);
+    assert.equal(camera, engine.camera);
+    assert.equal(engine._needsMaterialPatch, false);
+    compiled.push(scene);
+  };
+  await engine.compileScene();
+  assert.deepEqual(compiled, [engine.scene, volume]);
+  assert.equal(target, previous);
+  engine.renderer.compileAsync = async () => { throw new Error('injected compile failure'); };
+  await assert.rejects(engine.compileScene(), /injected compile failure/);
+  assert.equal(target, previous);
 });

@@ -4,6 +4,7 @@
 //   accumulated HDR → physically-based bloom (mip chain) → colour grade + tone map → canvas.
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 
 // Grading happens in two domains:
 //   scene-linear HDR: exposure, white balance, bloom, lens glare → tone map (AgX by default)
@@ -94,6 +95,20 @@ varying vec2 vUv;
 void main() { vUv = uv; gl_Position = vec4( position.xy, 0.0, 1.0 ); }
 `;
 
+// Single-frame interactive views can sample the scene directly instead of copying it through
+// an RGBA32F history buffer. Keep the accumulation pass's finite-HDR guard at those reads.
+const HDR_FETCH = /* glsl */ `
+uniform float uDirectHDR;
+vec4 readHDR(sampler2D source, vec2 uv) {
+  vec4 c = texture2D(source, uv);
+  if (uDirectHDR > 0.5) {
+    c.rgb = min(c.rgb, vec3(6.0e4));
+    if (any(isnan(c.rgb))) c.rgb = vec3(0.0);
+  }
+  return c;
+}
+`;
+
 function rt(w, h, type, samples = 0, depth = false) {
   return new THREE.WebGLRenderTarget(w, h, {
     type, format: THREE.RGBAFormat, colorSpace: THREE.LinearSRGBColorSpace,
@@ -155,6 +170,9 @@ export class Pipeline {
     this.acc = [rt(w, h, this.accType), rt(w, h, this.accType)];
     this.accIndex = 0;
     this.count = 0;
+    this._directHDR = false;
+    this._hdrDirectUniform = { value: 0 };
+    this._levelsEpoch = 0;
     this.quad = new FullScreenQuad(null);
 
     this.copyMat = new THREE.ShaderMaterial({
@@ -180,11 +198,12 @@ export class Pipeline {
       this.mips.push(rt(mw, mh, THREE.HalfFloatType));
     }
     this.downMat = new THREE.ShaderMaterial({
-      uniforms: { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() }, uFirst: { value: 0 }, uClamp: { value: 1e4 } },
+      uniforms: { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() }, uFirst: { value: 0 }, uClamp: { value: 1e4 }, uDirectHDR: { value: 0 } },
       vertexShader: FS_VERT,
       fragmentShader: /* glsl */ `
         uniform sampler2D tSrc; uniform vec2 uTexel; uniform float uFirst; uniform float uClamp; varying vec2 vUv;
-        vec3 s(vec2 o){ return texture2D(tSrc, vUv + o * uTexel).rgb; }
+        ${HDR_FETCH}
+        vec3 s(vec2 o){ return readHDR(tSrc, vUv + o * uTexel).rgb; }
         float kw(vec3 c){ return 1.0 / (1.0 + dot(c, vec3(0.2126, 0.7152, 0.0722))); }
         void main(){
           // 13-tap downsample (Jimenez 2014), Karis average on the first mip to kill fireflies
@@ -228,11 +247,12 @@ export class Pipeline {
       this.ltm.push(rt(lw, lh, THREE.HalfFloatType));
     }
     this.ltmLumMat = new THREE.ShaderMaterial({
-      uniforms: { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() } },
+      uniforms: { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() }, uDirectHDR: this._hdrDirectUniform },
       vertexShader: FS_VERT, depthTest: false, depthWrite: false,
       fragmentShader: /* glsl */ `
         uniform sampler2D tSrc; uniform vec2 uTexel; varying vec2 vUv;
-        float ll(vec2 o){ return log2(max(dot(texture2D(tSrc, vUv + o * uTexel).rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-5)); }
+        ${HDR_FETCH}
+        float ll(vec2 o){ return log2(max(dot(readHDR(tSrc, vUv + o * uTexel).rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-5)); }
         void main(){
           // 4 bilinear taps = 4x4 full-res pixels, geometric mean
           float v = 0.25 * (ll(vec2(-0.5, -0.5)) + ll(vec2(0.5, -0.5)) + ll(vec2(-0.5, 0.5)) + ll(vec2(0.5, 0.5)));
@@ -244,7 +264,7 @@ export class Pipeline {
       defines: { CG_REDUCED_METER: floatOK ? 1 : 0 },
       uniforms: {
         ...GRADE,
-        tHDR: { value: null }, tBloom: { value: null },
+        tHDR: { value: null }, tBloom: { value: null }, uBloomFromHDR: { value: 0 },
         tLens: { value: null }, uLensOn: { value: 0 }, // optional sun glare / god rays (LensFX)
         tMeter: { value: null }, uMeterOn: { value: 0 },
         tL0: { value: null }, tL2: { value: null }, tL4: { value: null }, uLtmOn: { value: 0 },
@@ -253,11 +273,13 @@ export class Pipeline {
         uBloomNorm: { value: 1 / 7 },
         uRes: { value: new THREE.Vector2(w, h) }, uFrame: { value: 0 },
         toneMappingExposure: { value: 1.0 },
+        uDirectHDR: this._hdrDirectUniform,
       },
       vertexShader: FS_VERT,
       fragmentShader: /* glsl */ `
         #include <tonemapping_pars_fragment>
-        uniform sampler2D tHDR; uniform sampler2D tBloom;
+        ${HDR_FETCH}
+        uniform sampler2D tHDR; uniform sampler2D tBloom; uniform float uBloomFromHDR;
         uniform sampler2D tLens; uniform float uLensOn;
         uniform vec2 uRes; uniform float uFrame;
         uniform float uHighlights;
@@ -364,21 +386,22 @@ export class Pipeline {
           return clamp(O * (a / b), 0.0, 1.0);
         }
         float h12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
-        vec3 sampleHDR(vec2 uv){
+        vec3 sampleHDR(vec2 uv, vec3 center){
           // lateral chromatic aberration grows toward the frame edge
           vec2 d = (uv - 0.5);
           float k = uChroma * dot(d, d) * 4.0;
-          return vec3(texture2D(tHDR, uv - d * k).r, texture2D(tHDR, uv).g, texture2D(tHDR, uv + d * k).b);
+          return vec3(readHDR(tHDR, uv - d * k).r, center.g, readHDR(tHDR, uv + d * k).b);
         }
         void main(){
           vec2 px = 1.0 / uRes;
-          vec3 c = sampleHDR(vUv);
+          vec4 center = readHDR(tHDR, vUv);
+          vec3 c = sampleHDR(vUv, center.rgb);
           // unsharp mask (restores crispness lost to supersampling)
-          vec3 blur = (texture2D(tHDR, vUv + vec2(px.x, 0.0)).rgb + texture2D(tHDR, vUv - vec2(px.x, 0.0)).rgb
-                     + texture2D(tHDR, vUv + vec2(0.0, px.y)).rgb + texture2D(tHDR, vUv - vec2(0.0, px.y)).rgb) * 0.25;
+          vec3 blur = (readHDR(tHDR, vUv + vec2(px.x, 0.0)).rgb + readHDR(tHDR, vUv - vec2(px.x, 0.0)).rgb
+                     + readHDR(tHDR, vUv + vec2(0.0, px.y)).rgb + readHDR(tHDR, vUv - vec2(0.0, px.y)).rgb) * 0.25;
           c = max(c + (c - blur) * uSharpen, vec3(0.0));
           // bloom: the mip chain sums ~7 octaves → normalise so uBloom is the veil fraction
-          vec3 bl = texture2D(tBloom, vUv).rgb * uBloomNorm;
+          vec3 bl = (uBloomFromHDR > 0.5 ? center.rgb : texture2D(tBloom, vUv).rgb) * uBloomNorm;
           float mL = uMeterOn > 0.5 ? meterLum() : 0.18;
           // r5 local tone mapping: add soft-clipped detail bands of log-luminance, compress the base
           if (uLtmOn > 0.5) {
@@ -389,7 +412,7 @@ export class Pipeline {
             float K = uMeterOn > 0.5 ? log2(max(mL, 1e-5)) : B;
             float dY = uLtmFine * softClip(Y - F, uLtmClip) + uLtmMid * softClip(F - M, uLtmClip)
                      + uLtmLarge * softClip(M - B, uLtmClip) - uLtmBase * (B - K);
-            float cover = clamp(texture2D(tHDR, vUv).a, 0.0, 1.0);
+            float cover = clamp(center.a, 0.0, 1.0);
             c *= exp2(clamp(dY * mix(uLtmSky, 1.0, cover), -2.5, 2.5));
           }
           c = mix(c, bl, uBloom);
@@ -443,7 +466,9 @@ export class Pipeline {
 
   get target() { return this.sceneRT; }
 
-  begin() { this.count = 0; }
+  begin() { this.count = 0; this._directHDR = false; this._hdrDirectUniform.value = 0; }
+
+  get interactiveActive() { return !!(this._interactiveState?.moving || this._interactiveState?.animated); }
 
   /** Interactive-only scheduling; null keeps still/video rendering fully deterministic. */
   setInteractiveState(state = null) {
@@ -453,11 +478,16 @@ export class Pipeline {
       nowMs: Number.isFinite(state.nowMs) ? state.nowMs : performance.now(),
     } : null;
     const isActive = this._interactiveState && (this._interactiveState.moving || this._interactiveState.animated);
-    if (wasActive && !isActive) this._levelsForce = true;
+    if (wasActive && !isActive) this.begin();
+    if ((wasActive && !isActive) || this._interactiveState?.final) {
+      this._levelsForce = true;
+      this._levelsEpoch++; // A delayed moving-frame result must not replace the final still curve.
+    }
   }
 
   /** Call on a shot/look change, not on every accumulation restart during camera motion. */
   invalidateToneMapping() {
+    this._levelsEpoch++;
     this._lv = null;
     this._meter = null;
     this._lastLevelsReadMs = -Infinity;
@@ -467,6 +497,7 @@ export class Pipeline {
 
   _shouldMeasureLevels() {
     const state = this._interactiveState;
+    if (this.interactiveActive && !state?.final && this._levelRead) return false;
     if (!state || !this._lv || this._levelsForce || state.final) return true;
     if (state.moving || state.animated) {
       const configured = this.quality.toneMapIntervalMs;
@@ -478,6 +509,55 @@ export class Pipeline {
     return this.count === 2 || this.count === 8 || this.count === 32 || this.count === 64;
   }
 
+  _retireLevelsTarget(target) {
+    if (target && this._levelRead?.target === target) this._levelRead.disposeTarget = true;
+    else target?.dispose();
+  }
+
+  _applyLevels(buffer, frame, strength, targets, nowMs) {
+    let v = solveToneCurve(buffer, targets, strength);
+    const prev = this._lv;
+    if (prev && frame === prev.frame + 1) v = v.map((x, i) => prev.v[i] + (x - prev.v[i]) * 0.2);
+    this._lv = { frame, v };
+    this._lastLevelsReadMs = nowMs;
+    this._levelsForce = false;
+    this.gradeMat.uniforms.uLut.value.set(v);
+  }
+
+  _queueLevelsRead(frame, strength) {
+    const request = {
+      epoch: this._levelsEpoch, target: this.lvRT,
+      buffer: new Uint8Array(this.lvBuf.length),
+      nowMs: this._interactiveState.nowMs,
+      targets: Array.from(GRADE.uLevelTarget.value),
+    };
+    this._levelRead = request;
+    this._lastLevelsReadMs = request.nowMs;
+    this._levelsForce = false;
+    // Three.js issues readPixels into a pixel-pack buffer before awaiting its GPU fence.
+    // Only one request is in flight. A resize/shot/stop may retire it, but must not free its
+    // target or reuse its CPU buffer until the read has completed.
+    request.promise = (async () => {
+      try {
+        const pixels = await this.renderer.readRenderTargetPixelsAsync(request.target, 0, 0,
+          request.target.width, request.target.height, request.buffer);
+        if (!pixels) throw new Error('The asynchronous tone meter returned no pixels');
+        if (!this._disposed && request.epoch === this._levelsEpoch) {
+          this._applyLevels(pixels, frame, strength, request.targets, request.nowMs);
+        }
+      } catch {
+        if (!this._disposed && request.epoch === this._levelsEpoch) {
+          // Preserve the existing, throttled synchronous path on a driver without PBO support.
+          this._asyncLevelsDisabled = true;
+          this._levelsForce = true;
+        }
+      } finally {
+        if (request.disposeTarget) request.target.dispose();
+        if (this._levelRead === request) this._levelRead = null;
+      }
+    })();
+  }
+
   /** render one sub-frame of the scene and fold it into the running average */
   addSample(scene, camera) {
     const r = this.renderer;
@@ -487,6 +567,16 @@ export class Pipeline {
     r.info.reset();
     r.render(scene, camera);
     this.sceneInfo = { calls: r.info.render.calls, triangles: r.info.render.triangles };
+    if (this.interactiveActive) {
+      // The camera/time changes every active frame, so no history is used. Avoid a full-screen
+      // history read + RGBA32F write that would immediately be discarded on the next begin().
+      this._directHDR = true;
+      this._hdrDirectUniform.value = 1;
+      this.count++;
+      return;
+    }
+    this._directHDR = false;
+    this._hdrDirectUniform.value = 0;
     const src = this.acc[this.accIndex], dst = this.acc[1 - this.accIndex];
     this.copyMat.uniforms.tNew.value = this.sceneRT.texture;
     this.copyMat.uniforms.tPrev.value = src.texture;
@@ -499,7 +589,7 @@ export class Pipeline {
   }
 
   /** current accumulated HDR texture */
-  get hdr() { return this.acc[this.accIndex].texture; }
+  get hdr() { return this._directHDR ? this.sceneRT.texture : this.acc[this.accIndex].texture; }
 
   _bloom() {
     const r = this.renderer;
@@ -509,6 +599,7 @@ export class Pipeline {
       this.downMat.uniforms.tSrc.value = src;
       this.downMat.uniforms.uTexel.value.set(1 / sw, 1 / sh);
       this.downMat.uniforms.uFirst.value = i === 0 ? 1 : 0;
+      this.downMat.uniforms.uDirectHDR.value = i === 0 && this._directHDR ? 1 : 0;
       this.downMat.uniforms.uClamp.value = GRADE.uBloomClamp.value;
       r.setRenderTarget(this.mips[i]);
       this.quad.render(r);
@@ -531,13 +622,14 @@ export class Pipeline {
     const bloom = this.quality.bloom ? this._bloom() : this.hdr;
     // optional lens effects (sun glare, ghosts, god rays) — see LensFX below
     try {
-      this.lensFX ||= new LensFX(r, this.w, this.h, this.quad);
+      this.lensFX ||= new LensFX(r, this.w, this.h, this.quad, this._hdrDirectUniform, this.reduceMeter);
       const lt = this.lensFX.render(this.hdr);
       this.gradeMat.uniforms.tLens.value = lt;
       this.gradeMat.uniforms.uLensOn.value = lt ? 1 : 0;
     } catch (e) { this.gradeMat.uniforms.uLensOn.value = 0; }
     this.gradeMat.uniforms.tHDR.value = this.hdr;
     this.gradeMat.uniforms.tBloom.value = bloom;
+    this.gradeMat.uniforms.uBloomFromHDR.value = this.quality.bloom ? 0 : 1;
     this.gradeMat.uniforms.uBloomNorm.value = this.quality.bloom ? 1 / this.mips.length : 1;
     // exposure meter: 128x72 grid of mean log-luminance (16 bilinear taps per cell) of the accumulated HDR
     // r5b (video): taps are clamped (the sun disk / speculars no longer swing the log-average when leaves move across
@@ -545,14 +637,15 @@ export class Pipeline {
     if (GRADE.uAutoExpo.value > 0) {
       this.meterRTs ||= [rt(128, 72, THREE.HalfFloatType), rt(128, 72, THREE.HalfFloatType)];
       this.meterMat ||= new THREE.ShaderMaterial({
-        uniforms: { tSrc: { value: null }, tPrev: { value: null }, uW: { value: 1 } }, vertexShader: FS_VERT, depthTest: false, depthWrite: false,
+        uniforms: { tSrc: { value: null }, tPrev: { value: null }, uW: { value: 1 }, uDirectHDR: this._hdrDirectUniform }, vertexShader: FS_VERT, depthTest: false, depthWrite: false,
         fragmentShader: /* glsl */ `
           uniform sampler2D tSrc; uniform sampler2D tPrev; uniform float uW; varying vec2 vUv;
+          ${HDR_FETCH}
           void main(){
             float s = 0.0; vec2 cell = vec2(1.0 / 128.0, 1.0 / 72.0);
             for (int i = 0; i < 4; i++) for (int j = 0; j < 4; j++) {
               vec2 uv = vUv + (vec2(float(i), float(j)) + 0.5 - 2.0) * 0.25 * cell;
-              s += log(clamp(dot(texture2D(tSrc, uv).rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-4, 48.0));
+              s += log(clamp(dot(readHDR(tSrc, uv).rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-4, 48.0));
             }
             float m = s / 16.0;
             if (uW < 1.0) m = mix(texture2D(tPrev, vUv).r, m, uW);
@@ -609,19 +702,23 @@ export class Pipeline {
     const ltmOn = GRADE.uLtmFine.value || GRADE.uLtmMid.value || GRADE.uLtmLarge.value || GRADE.uLtmBase.value;
     U.uLtmOn.value = ltmOn ? 1 : 0;
     if (ltmOn) {
+      const off = Math.max(0, Math.min(2, Math.round(Math.log2(this.w / 1672))));
+      const lastLevel = Math.min(this.ltm.length - 1, 4 + off);
       this.ltmLumMat.uniforms.tSrc.value = this.hdr;
       this.ltmLumMat.uniforms.uTexel.value.set(1 / this.w, 1 / this.h);
       this.quad.material = this.ltmLumMat;
       r.setRenderTarget(this.ltm[0]); this.quad.render(r);
       this.quad.material = this.downMat;
       this.downMat.uniforms.uFirst.value = 0;
-      for (let i = 1; i < this.ltm.length; i++) {
+      this.downMat.uniforms.uDirectHDR.value = 0;
+      // The grade only samples levels off, off+2 and off+4. Coarser unused levels
+      // add render passes without contributing any pixel to the final image.
+      for (let i = 1; i <= lastLevel; i++) {
         const s = this.ltm[i - 1];
         this.downMat.uniforms.tSrc.value = s.texture;
         this.downMat.uniforms.uTexel.value.set(1 / s.width, 1 / s.height);
         r.setRenderTarget(this.ltm[i]); this.quad.render(r);
       }
-      const off = Math.max(0, Math.min(2, Math.round(Math.log2(this.w / 1672))));
       const lv = (k) => this.ltm[Math.min(this.ltm.length - 1, k + off)];
       [[U.tL0, U.uTx0, 0], [U.tL2, U.uTx2, 2], [U.tL4, U.uTx4, 4]].forEach(([t, tx, k]) => { const L = lv(k); t.value = L.texture; tx.value.set(1 / L.width, 1 / L.height); });
     }
@@ -631,27 +728,43 @@ export class Pipeline {
       if (this._shouldMeasureLevels()) {
         const qw = Math.max(16, Math.floor(this.w / 4)), qh = Math.max(16, Math.floor(this.h / 4));
         if (!this.lvRT || this.lvRT.width !== qw || this.lvRT.height !== qh) {
-          this.lvRT?.dispose();
+          this._retireLevelsTarget(this.lvRT);
           this.lvRT = new THREE.WebGLRenderTarget(qw, qh, { type: THREE.UnsignedByteType, format: THREE.RGBAFormat, colorSpace: THREE.LinearSRGBColorSpace, depthBuffer: false });
           this.lvBuf = new Uint8Array(qw * qh * 4);
         }
         U.uLevelsOn.value = 0;
         this.quad.material = this.gradeMat;
         r.setRenderTarget(this.lvRT); this.quad.render(r);
-        r.readRenderTargetPixels(this.lvRT, 0, 0, qw, qh, this.lvBuf);
-        let v = solveToneCurve(this.lvBuf, GRADE.uLevelTarget.value, S);
-        const prev = this._lv;
-        if (prev && frame === prev.frame + 1) v = v.map((x, i) => prev.v[i] + (x - prev.v[i]) * 0.2); // video: smooth
-        this._lv = { frame, v };
-        this._lastLevelsReadMs = this._interactiveState?.nowMs ?? performance.now();
-        this._levelsForce = false;
-        U.uLut.value.set(v);
+        if (this.interactiveActive && !this._interactiveState.final && !this._asyncLevelsDisabled &&
+            typeof r.readRenderTargetPixelsAsync === 'function') {
+          this._queueLevelsRead(frame, S);
+        } else {
+          r.readRenderTargetPixels(this.lvRT, 0, 0, qw, qh, this.lvBuf);
+          this._applyLevels(this.lvBuf, frame, S, GRADE.uLevelTarget.value, this._interactiveState?.nowMs ?? performance.now());
+        }
       }
-      U.uLevelsOn.value = 1;
+      U.uLevelsOn.value = this._lv ? 1 : 0;
     } else U.uLevelsOn.value = 0;
     this.quad.material = this.gradeMat;
-    r.setRenderTarget(target);
-    this.quad.render(r);
+    if (this.interactiveActive && this.quality.interactiveAA && !this.sceneRT.samples) {
+      if (!this.fxaaRT) {
+        this.fxaaRT = rt(this.w, this.h, THREE.UnsignedByteType);
+        // Grade already outputs perceptual RGB. Do not decode/re-encode it for edge AA.
+        this.fxaaRT.texture.colorSpace = THREE.NoColorSpace;
+      }
+      this.fxaaMat ||= new THREE.ShaderMaterial({
+        uniforms: THREE.UniformsUtils.clone(FXAAShader.uniforms),
+        vertexShader: FXAAShader.vertexShader, fragmentShader: FXAAShader.fragmentShader,
+        depthTest: false, depthWrite: false, toneMapped: false,
+      });
+      r.setRenderTarget(this.fxaaRT); this.quad.render(r);
+      this.fxaaMat.uniforms.tDiffuse.value = this.fxaaRT.texture;
+      this.fxaaMat.uniforms.resolution.value.set(1 / this.w, 1 / this.h);
+      this.quad.material = this.fxaaMat;
+      r.setRenderTarget(target); this.quad.render(r);
+    } else {
+      r.setRenderTarget(target); this.quad.render(r);
+    }
   }
 
   resize(w, h) {
@@ -668,7 +781,9 @@ export class Pipeline {
     for (const m of this.ltm) { lw = Math.max(1, Math.floor(lw / 2)); lh = Math.max(1, Math.floor(lh / 2)); m.setSize(lw, lh); }
     this.gradeMat.uniforms.uRes.value.set(w, h);
     this.lensFX?.resize(w, h);
-    this.lvRT?.dispose(); this.lvRT = null; this.lvBuf = null;
+    this.fxaaRT?.setSize(w, h);
+    this.fxaaMat?.uniforms.resolution.value.set(1 / w, 1 / h);
+    this._retireLevelsTarget(this.lvRT); this.lvRT = null; this.lvBuf = null;
     this.accIndex = 0;
     this.begin();
     this.invalidateToneMapping();
@@ -678,10 +793,13 @@ export class Pipeline {
   setSize(w, h) { return this.resize(w, h); }
 
   dispose() {
+    this._disposed = true;
+    this._levelsEpoch++;
+    this._retireLevelsTarget(this.lvRT);
     for (const target of [this.sceneRT, ...this.acc, ...this.mips, ...this.ltm,
-      this.lvRT, ...(this.meterRTs || []), this.meterReduceRT]) target?.dispose();
+      ...(this.meterRTs || []), this.meterReduceRT, this.fxaaRT]) target?.dispose();
     for (const material of [this.copyMat, this.downMat, this.upMat, this.ltmLumMat,
-      this.gradeMat, this.meterMat, this.meterReduceMat]) material?.dispose();
+      this.gradeMat, this.meterMat, this.meterReduceMat, this.fxaaMat]) material?.dispose();
     this.lensFX?.dispose();
     this.quad.dispose();
   }
@@ -709,10 +827,11 @@ export const LENS = {
 
 const LENS_MASK = /* glsl */ `
 uniform sampler2D tSrc; uniform vec2 uTexel; uniform vec2 uSunPos; uniform float uAspect; uniform float uThresh;
+${HDR_FETCH}
 varying vec2 vUv;
 void main(){
-  vec3 c = 0.25 * (texture2D(tSrc, vUv + uTexel * vec2(-1.0, -1.0)).rgb + texture2D(tSrc, vUv + uTexel * vec2(1.0, -1.0)).rgb
-                 + texture2D(tSrc, vUv + uTexel * vec2(-1.0, 1.0)).rgb + texture2D(tSrc, vUv + uTexel * vec2(1.0, 1.0)).rgb);
+  vec3 c = 0.25 * (readHDR(tSrc, vUv + uTexel * vec2(-1.0, -1.0)).rgb + readHDR(tSrc, vUv + uTexel * vec2(1.0, -1.0)).rgb
+                 + readHDR(tSrc, vUv + uTexel * vec2(-1.0, 1.0)).rgb + readHDR(tSrc, vUv + uTexel * vec2(1.0, 1.0)).rgb);
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
   float k = smoothstep(uThresh, uThresh * 2.5, l);
   vec2 d = (vUv - uSunPos) * vec2(uAspect, 1.0);
@@ -734,25 +853,45 @@ void main(){
   gl_FragColor = vec4(acc / ws, 1.0);
 }`;
 
-const LENS_COMPOSE = /* glsl */ `
-uniform sampler2D tRays; uniform sampler2D tMask; uniform sampler2D tHDR;
-uniform vec2 uSunPos; uniform float uAspect; uniform vec3 uSunTint; uniform float uSunRadius;
-uniform float uRays; uniform float uGlare; uniform float uGhost; uniform float uSunFacing;
-varying vec2 vUv;
-float lum(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
-void main(){
-  vec3 col = texture2D(tRays, vUv).rgb * uRays;
-  // sun visibility: fraction of the solar disk not hidden by geometry (leaves, columns)
+// Fraction of the solar disk not hidden by geometry (leaves, columns). Every output pixel
+// uses the same 12 samples, so evaluate them once rather than for every lens-composite pixel.
+const SUN_VISIBILITY = /* glsl */ `
+float sunVisibility(){
   float vis = 0.0;
   bool onScreen = uSunPos.x > -0.02 && uSunPos.x < 1.02 && uSunPos.y > -0.02 && uSunPos.y < 1.02;
   if (onScreen && uSunFacing > 0.0) {
     for (int i = 0; i < 12; i++) {
       float a = float(i) * 2.3999632, r = sqrt((float(i) + 0.5) / 12.0) * uSunRadius * 0.85;
       vec2 o = vec2(cos(a) * r / uAspect, sin(a) * r);
-      vis += smoothstep(40.0, 600.0, lum(texture2D(tHDR, uSunPos + o).rgb));
+      vis += smoothstep(40.0, 600.0, dot(readHDR(tHDR, uSunPos + o).rgb, vec3(0.2126, 0.7152, 0.0722)));
     }
     vis /= 12.0;
   }
+  return vis;
+}`;
+
+const LENS_VISIBILITY = /* glsl */ `
+uniform sampler2D tHDR; uniform vec2 uSunPos; uniform float uAspect; uniform float uSunRadius; uniform float uSunFacing;
+${HDR_FETCH}
+${SUN_VISIBILITY}
+void main(){ gl_FragColor = vec4(sunVisibility(), 0.0, 0.0, 1.0); }
+`;
+
+const LENS_COMPOSE = /* glsl */ `
+uniform sampler2D tRays; uniform sampler2D tMask; uniform sampler2D tHDR; uniform sampler2D tVisibility;
+uniform vec2 uSunPos; uniform float uAspect; uniform vec3 uSunTint; uniform float uSunRadius;
+uniform float uRays; uniform float uGlare; uniform float uGhost; uniform float uSunFacing;
+${HDR_FETCH}
+${SUN_VISIBILITY}
+varying vec2 vUv;
+void main(){
+  vec3 col = texture2D(tRays, vUv).rgb * uRays;
+  #if CG_REDUCED_LENS == 1
+  float vis = texture2D(tVisibility, vec2(0.5)).r;
+  #else
+  float vis = sunVisibility();
+  #endif
+  if (vis <= 0.0) { gl_FragColor = vec4(col, 1.0); return; }
   vec2 d = (vUv - uSunPos) * vec2(uAspect, 1.0);
   float r = length(d);
   float ang = atan(d.y, d.x);
@@ -764,7 +903,7 @@ void main(){
   vec2 gv = vec2(0.5) - uSunPos;
   vec3 tints[4];
   tints[0] = vec3(0.35, 0.55, 1.0); tints[1] = vec3(1.0, 0.75, 0.35); tints[2] = vec3(0.55, 1.0, 0.6); tints[3] = vec3(0.8, 0.5, 1.0);
-  for (int i = 0; i < 4; i++) {
+  if (uGhost != 0.0) for (int i = 0; i < 4; i++) {
     float f = 0.5 + float(i) * 0.48;
     vec2 gp = uSunPos + gv * (1.0 + f);
     float gr = length((vUv - gp) * vec2(uAspect, 1.0));
@@ -776,15 +915,17 @@ void main(){
 }`;
 
 class LensFX {
-  constructor(renderer, w, h, quad) {
+  constructor(renderer, w, h, quad, hdrDirectUniform, reduceVisibility) {
     this.r = renderer; this.quad = quad;
     this.size = [0, 0];
-    this.mk = (frag, extra = {}) => new THREE.ShaderMaterial({
-      uniforms: { ...LENS, ...extra }, vertexShader: FS_VERT, fragmentShader: frag, depthTest: false, depthWrite: false,
+    this.reduceVisibility = reduceVisibility;
+    this.mk = (frag, extra = {}, defines = {}) => new THREE.ShaderMaterial({
+      uniforms: { ...LENS, uDirectHDR: hdrDirectUniform, ...extra }, defines,
+      vertexShader: FS_VERT, fragmentShader: frag, depthTest: false, depthWrite: false,
     });
     this.maskMat = this.mk(LENS_MASK, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() } });
     this.radMat = this.mk(LENS_RADIAL, { tSrc: { value: null }, uLen: { value: 1 }, uDecay: { value: 0.97 } });
-    this.compMat = this.mk(LENS_COMPOSE, { tRays: { value: null }, tMask: { value: null }, tHDR: { value: null } });
+    this.compMat = this.mk(LENS_COMPOSE, { tRays: { value: null }, tMask: { value: null }, tHDR: { value: null }, tVisibility: { value: null } }, { CG_REDUCED_LENS: reduceVisibility ? 1 : 0 });
     this.resize(w, h);
   }
   resize(w, h) {
@@ -797,7 +938,8 @@ class LensFX {
   }
   dispose() {
     this.t?.forEach((t) => t.dispose());
-    for (const m of [this.maskMat, this.radMat, this.compMat]) m.dispose();
+    this.visibilityRT?.dispose();
+    for (const m of [this.maskMat, this.radMat, this.compMat, this.visibilityMat]) m?.dispose();
   }
   /** @returns {THREE.Texture|null} lens texture or null when the sun is far off-screen */
   render(hdr) {
@@ -808,6 +950,16 @@ class LensFX {
     const img = hdr.image || {};
     if (img.width && img.height) this.resize(img.width, img.height);
     const [w, h] = this.full;
+    if (this.reduceVisibility) {
+      if (!this.visibilityRT) {
+        this.visibilityRT = rt(1, 1, THREE.FloatType);
+        this.visibilityRT.texture.minFilter = this.visibilityRT.texture.magFilter = THREE.NearestFilter;
+        this.visibilityMat = this.mk(LENS_VISIBILITY, { tHDR: { value: null } });
+      }
+      this.visibilityMat.uniforms.tHDR.value = hdr;
+      q.material = this.visibilityMat; r.setRenderTarget(this.visibilityRT); q.render(r);
+      this.compMat.uniforms.tVisibility.value = this.visibilityRT.texture;
+    }
     this.maskMat.uniforms.tSrc.value = hdr;
     this.maskMat.uniforms.uTexel.value.set(1 / w, 1 / h);
     q.material = this.maskMat; r.setRenderTarget(this.t[0]); q.render(r);

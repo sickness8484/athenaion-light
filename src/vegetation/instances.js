@@ -5,13 +5,24 @@
 // shot change, whenever the camera moved (video / interactive), and costs a few ms.
 import * as THREE from 'three';
 import { ATMO } from '../core/atmosphere.js';
-import { windDepthMaterial } from '../materials/foliage.js';
+import { windDepthMaterial, WIND } from '../materials/foliage.js';
+import { updateVegetationPageBounds } from './bounds.js';
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3(), _p = new THREE.Vector3();
 const _Y = new THREE.Vector3(0, 1, 0), _up = new THREE.Vector3(), _qt = new THREE.Quaternion();
 const _frustum = new THREE.Frustum(), _pm = new THREE.Matrix4(), _sph = new THREE.Sphere();
 const MAX_TRIS = 350000;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
+
+function markUpload(attribute, start, count) {
+  // Several camera updates may happen before the renderer consumes this attribute. Merge
+  // pending ranges so a later edit never discards an earlier, still-unuploaded change.
+  let end = start + count;
+  for (const range of attribute.updateRanges) { start = Math.min(start, range.start); end = Math.max(end, range.start + range.count); }
+  attribute.clearUpdateRanges();
+  attribute.addUpdateRange(start, end - start);
+  attribute.needsUpdate = true;
+}
 
 export class VegSystem {
   constructor(engine) {
@@ -102,8 +113,10 @@ export class VegSystem {
     const cap = L.page;
     const im = new THREE.InstancedBufferAttribute(new Float32Array(cap * 16), 16);
     im.setUsage(THREE.DynamicDrawUsage);
+    im.onUpload(() => im.clearUpdateRanges());
     const ic = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
     ic.setUsage(THREE.DynamicDrawUsage);
+    ic.onUpload(() => ic.clearUpdateRanges());
     const parts = [];
     const P = this.engine.params;
     for (const part of ['bark', 'blob', 'card', 'bb']) {
@@ -124,10 +137,11 @@ export class VegSystem {
       mesh.castShadow = cast; mesh.receiveShadow = true;
       mesh.userData.castShadow = cast; mesh.userData.receiveShadow = true;
       mesh.customDepthMaterial = windDepthMaterial(part === 'card' || part === 'bb');
+      mesh.userData.vegetationBillboard = part === 'bb';
       this.group.add(mesh);
       parts.push(mesh);
     }
-    const pg = { im, ic, parts, cap };
+    const pg = { im, ic, parts, cap, ids: new Uint32Array(cap).fill(0xffffffff), count: 0, dirtyStart: cap, dirtyEnd: 0 };
     L.pages.push(pg);
     return pg;
   }
@@ -141,7 +155,14 @@ export class VegSystem {
     if (this.lastCam) {
       const dp = Math.hypot(key[0] - this.lastCam[0], key[1] - this.lastCam[1], key[2] - this.lastCam[2]);
       const dq = Math.abs(key[3] - this.lastCam[3]) + Math.abs(key[4] - this.lastCam[4]) + Math.abs(key[5] - this.lastCam[5]) + Math.abs(key[6] - this.lastCam[6]);
-      if (dp < 0.75 && dq < 0.004 && key[7] === this.lastCam[7]) return false;
+      if (dp < 0.75 && dq < 0.004 && key[7] === this.lastCam[7]) {
+        const amplitude = WIND.uWindAmp.value;
+        if (this.boundsWindAmp === amplitude) return false;
+        // Wind strength changes bounds, not the selected trees/LOD history.
+        for (const v of this.variants) for (const L of v.lodMeshes || []) for (const pg of L.pages) updateVegetationPageBounds(pg, amplitude);
+        this.boundsWindAmp = amplitude;
+        return true;
+      }
     }
     this.update(camera);
     return true;
@@ -258,11 +279,14 @@ export class VegSystem {
 
   /** Apply the final plan once, preserving original instance order in each LOD bucket. */
   _applyPlan() {
+    const windAmp = WIND.uWindAmp.value, windChanged = windAmp !== this.boundsWindAmp;
+    let copiedInstances = 0, changedPages = 0;
     for (const v of this.variants) {
       if (!v.instanceCount) continue;
       const counts = v.planCounts;
       const cursor = v.writeCounts;
       cursor.fill(0);
+      for (const L of v.lodMeshes) for (const pg of L.pages) { pg.dirtyStart = pg.cap; pg.dirtyEnd = 0; }
       for (let vi = 0; vi < v.visibleCount; vi++) {
         const li = v.selectedLod[vi];
         if (li < 0) continue;
@@ -270,6 +294,13 @@ export class VegSystem {
         const k = cursor[li]++;
         const pi = Math.floor(k / L.page), slot = k - pi * L.page;
         const pg = L.pages[pi] || this._newPage(v, L);
+        // Finalized transforms/colors are immutable. Stable slots need no CPU copies or GPU
+        // upload when the camera moves but this page's visible instances and LOD stay the same.
+        if (pg.ids[slot] === i) continue;
+        copiedInstances++;
+        pg.ids[slot] = i;
+        pg.dirtyStart = Math.min(pg.dirtyStart, slot);
+        pg.dirtyEnd = slot + 1;
         // Direct scalar copies avoid a short-lived subarray view per visible tree per update.
         const source = i * 16, target = slot * 16;
         for (let j = 0; j < 16; j++) pg.im.array[target + j] = v.mat[source + j];
@@ -284,14 +315,21 @@ export class VegSystem {
           const pg = L.pages[pi];
           const count = clamp(counts[l] - pi * L.page, 0, L.page);
           for (const m of pg.parts) { m.count = count; m.visible = count > 0; }
-          pg.im.clearUpdateRanges(); pg.ic.clearUpdateRanges();
-          if (count) {
-            pg.im.addUpdateRange(0, count * 16); pg.ic.addUpdateRange(0, count * 3);
-            pg.im.needsUpdate = true; pg.ic.needsUpdate = true;
+          const dirty = pg.dirtyEnd > pg.dirtyStart;
+          if (count && (dirty || count !== pg.count || windChanged)) updateVegetationPageBounds(pg, windAmp);
+          pg.count = count;
+          if (dirty) {
+            changedPages++;
+            const length = pg.dirtyEnd - pg.dirtyStart;
+            markUpload(pg.im, pg.dirtyStart * 16, length * 16);
+            markUpload(pg.ic, pg.dirtyStart * 3, length * 3);
           }
         }
       }
     }
+    this.boundsWindAmp = windAmp;
+    this.stats.copiedInstances = copiedInstances;
+    this.stats.changedPages = changedPages;
   }
 
   lodHistogram() {

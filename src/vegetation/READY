@@ -8,6 +8,7 @@ src/vegetation/trees.js          buildTree(species, seed) -> { H, R, lods:[{bark
 src/vegetation/atlas.js          cypressAtlas(), leafAtlas() (canvas-drawn foliage atlases, coverage-preserving mips)
 src/materials/foliage.js         foliageMaterials(species, atlas) -> {blob, card}; billboardMaterial(species, atlas) (far impostor); barkMaterial(species); windDepthMaterial(card); WIND uniforms
 src/vegetation/util.js           GeoBuilder, addBlob, addCard, addTube, billboardQuad(H, R, rect)
+src/vegetation/bounds.js         conservative per-page culling envelopes for wind, tilted/scaled instances, and camera-facing billboards; each main/reflection/shadow camera performs its own frustum test
 
 Inputs read from other modules (all optional):
   engine.registry.cypressRows = [{ points: [[x,z] | [x,y,z], ...], spacing?, height? }]
@@ -15,6 +16,7 @@ Inputs read from other modules (all optional):
   engine.slots.tree = [{ pos:[x,y,z], tag:'cypress'|'olive'|'broad'|'pine'|'shrub', size: height_m }]
   engine.footprints (respected, with tag exemptions for rows/heroes: acro-wall, acro-way, acro-plaza; 'waterfall'
     corridors only block their central 80% width, so falls are framed by vegetation on both banks)
-Output: engine.registry.vegetation = VegSystem (variants[].instanceCount plus typed mat/col/ctr arrays after finalize(); temporary inst objects are released)
+Output: engine.registry.vegetation = VegSystem (variants[].instanceCount plus immutable typed mat/col/ctr arrays after finalize(); temporary inst objects are released)
+Page updates preserve input order. Unchanged instance slots keep their existing matrix/color GPU data; modified ranges are merged until Three consumes the upload. stats.copiedInstances and stats.changedPages measure actual buffer work in the last update.
 Debug URL params: vegNoAtmo=1, vegLod=n, vegNoShadow=1, vegNoCards=1, vegDensity=x (override quality density; sessions at preview use 0.45),
   vegDebug=1 (logs placement rejections per stage/reason and where each hero tree landed)

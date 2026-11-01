@@ -7,9 +7,15 @@ import { createHash } from 'node:crypto';
 import { createGunzip } from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
 import { Writable } from 'node:stream';
+import { moduleEntryFromHTML, sourceScriptDirectory } from './build-site.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
+const entry = moduleEntryFromHTML(fs.readFileSync(path.join(DIST, 'index.html'), 'utf8'));
+const scriptDirectory = path.posix.dirname(entry.replace(/^\.\//, ''));
+const buildInfo = JSON.parse(fs.readFileSync(path.join(DIST, 'build-info.json'), 'utf8'));
+if (!/^src-[a-f0-9]{16}$/.test(scriptDirectory) || buildInfo.scriptDirectory !== scriptDirectory ||
+    sourceScriptDirectory(path.join(DIST, scriptDirectory)) !== scriptDirectory) throw new Error('Published source files do not match their content-hashed directory');
 const manifest = JSON.parse(fs.readFileSync(path.join(DIST, 'generated', 'manifest.json'), 'utf8'));
 if (manifest.formatVersion !== 1 || !manifest.terrain?.preview) throw new Error('Invalid geometry release manifest');
 let verified = 0;
@@ -24,5 +30,5 @@ for (const [name, entry] of Object.entries(manifest.geometries)) {
   verified++;
 }
 for (const name of Object.values(manifest.terrain)) if (!manifest.geometries[name]) throw new Error(`Terrain is absent from release: ${name}`);
-for (const file of ['index.html', 'LICENSE', '.nojekyll', 'src/main.js', 'vendor/three/build/three.module.js', 'vendor/three/build/three.core.js', 'vendor/three/examples/jsm/controls/OrbitControls.js']) if (!fs.statSync(path.join(DIST, file)).isFile()) throw new Error(`Missing static asset: ${file}`);
-console.log(`[verify] ${verified} geometry assets passed gzip + SHA-256 round-trip verification; required Pages assets are present.`);
+for (const file of ['index.html', 'LICENSE', '.nojekyll', entry, 'vendor/three/build/three.module.js', 'vendor/three/build/three.core.js', 'vendor/three/examples/jsm/controls/OrbitControls.js']) if (!fs.statSync(path.join(DIST, file)).isFile()) throw new Error(`Missing static asset: ${file}`);
+console.log(`[verify] ${verified} geometry assets passed gzip + SHA-256 round-trip verification; required Pages assets and ${scriptDirectory} are present.`);

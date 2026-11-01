@@ -13,6 +13,7 @@ import { CG_DFG_FIX_GLSL } from './materials.js';
 import { RNG, halton } from './rng.js';
 import { dirFromAzEl, SUN as SUN_DEFAULT } from '../world/layout.js';
 import { LOOKS } from '../world/looks.js';
+import { freezeStaticTransforms } from './static-transforms.js';
 
 const LIT = (m) => m.isMeshStandardMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial || m.isMeshToonMaterial;
 
@@ -131,6 +132,7 @@ export class Engine {
       if (o.customDepthMaterial && !o.customDepthMaterial.userData.__cgPatched) objs.push(o.customDepthMaterial);
     });
     for (const m of objs) this.patchMaterial(m);
+    this._staticTransformStats = freezeStaticTransforms(this.scene);
     this._needsMaterialPatch = false;
     if (objs.length && this._prepared) console.log('[engine] late-patched ' + objs.length + ' materials');
   }
@@ -147,6 +149,7 @@ export class Engine {
     });
     this.lighting.refreshCSM();
     if (!deferEnvironment) this.lighting.buildEnvironment();
+    this._staticTransformStats = freezeStaticTransforms(this.scene);
     this._needsMaterialPatch = false;
     this._shadowDirty = true;
   }
@@ -173,6 +176,23 @@ export class Engine {
     ATMO.uAtmoTime.value = t;
     SKY.uSkyTime.value = t;
     for (const fn of this.updates) fn(t, dt);
+  }
+
+  /** Compile the same HDR variants used for drawing, including the offscreen volumes. */
+  async compileScene() {
+    if (this._needsMaterialPatch) this.ensurePatched();
+    const renderer = this.renderer;
+    const target = renderer.getRenderTarget();
+    const face = renderer.getActiveCubeFace?.() || 0;
+    const mip = renderer.getActiveMipmapLevel?.() || 0;
+    try {
+      // The canvas uses a different output-color-space variant from our HDR target.
+      renderer.setRenderTarget(this.pipeline.target);
+      await renderer.compileAsync(this.scene, this.camera);
+      for (const pass of this.registry.clouds?.volumePasses || []) {
+        await renderer.compileAsync(pass.scene, this.camera);
+      }
+    } finally { renderer.setRenderTarget(target, face, mip); }
   }
 
   // ------------------------------------------------------------------ shots
@@ -281,6 +301,7 @@ export class Engine {
     this.ensurePatched();
     this.pipeline.setInteractiveState(null);
     this.registry.water?.reflection?.setInteractiveState(null);
+    this.registry.clouds?.setInteractiveState?.(null);
     SKY.uCloudSteps.value = this.quality.cloudSteps;
     this.pipeline.begin();
     const gl = this.renderer.getContext();
@@ -319,6 +340,7 @@ export class Engine {
     const state = { moving, animated, nowMs, final: !active && this._accFrames + 1 >= maxAcc };
     this.pipeline.setInteractiveState(state);
     this.registry.water?.reflection?.setInteractiveState(state);
+    this.registry.clouds?.setInteractiveState?.(state);
     const soft = !active && this._accFrames > 0 && this.quality.softShadows;
     const refresh = this._shadowDirty || justStopped || soft ||
       ((changed || animated) && nowMs - this._lastShadowRefresh >= (this.quality.shadowIntervalMs || 65));

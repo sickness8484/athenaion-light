@@ -28,6 +28,7 @@ export function mockEngine(overrides = {}) {
       refreshCSM() { events.push(['refresh-csm']); },
     },
     registry: {
+      clouds: { setInteractiveState(state) { this.state = state; events.push(['cloud-state', state]); } },
       vegetation: { lastCam: [], maybeUpdate() { events.push(['vegetation']); } },
       water: { reflection: {
         setInteractiveState(state) { this.state = state; events.push(['reflection-state', state]); },

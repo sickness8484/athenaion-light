@@ -25,6 +25,7 @@
 //   bank map: R coverage, G window centre (m), B window half-width (m), A terrain height (m)
 //   mist map: R amount,   G base (m),      B thickness (m),      A terrain height (m)
 import * as THREE from 'three';
+import { HalfResolutionVolumePass } from '../core/volume-pass.js';
 import { heightAt, waterSDF, distPolyline } from '../world/heightfield.js';
 import * as L from '../world/layout.js';
 import { ATMO, ATMO_GLSL } from '../core/atmosphere.js';
@@ -430,6 +431,8 @@ void main(){
 `;
 
 // ------------------------------------------------------------------------------------ depth grab
+export { VERT as CLOUD_VOLUME_VERTEX_SHADER, FRAG as CLOUD_VOLUME_FRAGMENT_SHADER };
+
 function makeDepthGrabber(engine) {
   const shared = engine.registry.sceneDepth || {
     texture: null, valid: { value: 0 }, nearFar: { value: new THREE.Vector2(0.5, 60000) }, size: new THREE.Vector2(1, 1),
@@ -523,6 +526,7 @@ function makeVolume(engine, kind, map, region, depth) {
   mesh.renderOrder = isBanks ? -1000 : 1000;
   mesh.castShadow = false; mesh.receiveShadow = false;
   mesh.userData.noPatch = true; mesh.userData.castShadow = false; mesh.userData.receiveShadow = false;
+  const pass = engine.quality.interactiveVolumes ? new HalfResolutionVolumePass(engine, mat, geo) : null;
   mesh.onBeforeRender = (renderer, scene, camera) => {
     const cur = renderer.getRenderTarget();
     if (cur) U.uRes.value.set(cur.width, cur.height);
@@ -530,8 +534,9 @@ function makeVolume(engine, kind, map, region, depth) {
     // real depth only in the main pass of this sub-frame (fallback: coarse terrain heights)
     U.uDepthValid.value = (cur && cur === engine.pipeline?.target && depth.valid.value > 0.5 && depth.frame === SKY.uFrame.value) ? 1 : 0;
     U.uInvVP.value.multiplyMatrices(camera.matrixWorld, camera.projectionMatrixInverse);
+    pass?.render(renderer, camera);
   };
-  return mesh;
+  return { mesh, pass };
 }
 
 export async function build(engine) {
@@ -542,8 +547,8 @@ export async function build(engine) {
   const mist = buildMistMap(Math.round(150 * Math.min(1.25, 0.6 + q.detail * 0.6)));
   const grabber = makeDepthGrabber(engine);
   const shared = engine.registry.sceneDepth;
-  const banks = makeVolume(engine, 'banks', bank, BANK_REGION, shared);
-  const mistV = makeVolume(engine, 'mist', mist, MIST_REGION, shared);
+  const { mesh: banks, pass: bankPass } = makeVolume(engine, 'banks', bank, BANK_REGION, shared);
+  const { mesh: mistV, pass: mistPass } = makeVolume(engine, 'mist', mist, MIST_REGION, shared);
   engine.scene.add(grabber, banks, mistV);
   // debug switches: ?vols=0 hides the volumes, ?atmo=0 disables aerial perspective, ?skyclouds=0 clears the sky
   const P = engine.params;
@@ -575,7 +580,11 @@ export async function build(engine) {
       if (Array.isArray(v) && u.value?.fromArray) u.value.fromArray(v); else u.value = v;
     }
   });
-  engine.registry.clouds = { U: CLOUDS, bankMap: bank, mistMap: mist, BANK_REGION, MIST_REGION };
+  const volumePasses = [bankPass, mistPass].filter(Boolean);
+  engine.registry.clouds = {
+    U: CLOUDS, bankMap: bank, mistMap: mist, BANK_REGION, MIST_REGION, volumePasses,
+    setInteractiveState(state) { for (const pass of volumePasses) pass.setInteractiveState(state); },
+  };
   console.log(`[clouds] maps ${bank.w}x${bank.h} + ${mist.w}x${mist.h}, built in ${Math.round(performance.now() - t0)} ms`);
 }
 

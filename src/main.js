@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { createEngine } from './core/engine.js';
 import { getQuality, withRuntimeProfile } from './core/quality.js';
-import { getRuntimeProfile, viewportSize } from './core/performance.js';
+import { getRuntimeProfile, runtimeViewport } from './core/performance.js';
 import { SHOTS } from './world/shots.js';
 
 const P = new URLSearchParams(location.search);
@@ -37,7 +37,7 @@ async function boot() {
   const baseQuality = getQuality(P.get('quality') || 'preview');
   const quality = mode === 'interactive' ? withRuntimeProfile(baseQuality, profile) : baseQuality;
   if (P.get('spp')) quality.spp = Number(P.get('spp'));
-  const initial = viewportSize(innerWidth, innerHeight, profile.pixelBudget, profile.movingScale);
+  const initial = runtimeViewport(innerWidth, innerHeight, profile, 1, window.devicePixelRatio);
   const W = Number(P.get('w')) || (mode === 'interactive' ? initial.width : 1672);
   const H = Number(P.get('h')) || (mode === 'interactive' ? initial.height : 941);
   if (mode === 'interactive') document.body.classList.add('interactive');
@@ -106,7 +106,7 @@ async function boot() {
   else engine.applyShot(testInfo.shot);
   stage('光と影を仕上げています', 17);
   const tc = performance.now();
-  await engine.renderer.compileAsync(engine.scene, engine.camera);
+  await engine.compileScene();
   console.log(`[main] shaders compiled in ${Math.round(performance.now() - tc)} ms`);
   window.__READY = true;
 

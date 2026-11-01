@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { AdaptiveResolution, viewportSize } from './core/performance.js';
+import { AdaptiveResolution, runtimeViewport } from './core/performance.js';
 const SHOT_NAMES = ['岩山からの全景','ラグーンと円形神殿','オリーブのテラス','峡谷の上空','神殿の正面','大階段','川と水道橋','倒れた巨像','廃墟の回廊'];
 const SETTLE_MS = 220;
 export async function startInteractive(engine, { shotById, shots, profile, params, showError }) {
@@ -81,9 +81,10 @@ export async function startInteractive(engine, { shotById, shots, profile, param
       const moving = pressed || keys.size > 0 || now - lastChange < SETTLE_MS;
       const active = moving || animation;
       const interval = lastRendered ? now - lastRendered : 0;
-      const wantedScale = active ? adaptive.scale : 1;
+      // Animation alone must not leave a stationary view at the moving resolution.
+      const wantedScale = moving ? adaptive.scale : 1;
       if (scale !== wantedScale) {
-        const size = viewportSize(innerWidth, innerHeight, profile.pixelBudget, wantedScale);
+        const size = runtimeViewport(innerWidth, innerHeight, profile, wantedScale, window.devicePixelRatio);
         dirty = engine.resize(size.width, size.height) || dirty; scale = wantedScale;
       }
       if (animation) engine.setTime(engine.time + Math.min(0.1, interval / 1000 || 1 / 30));
@@ -96,7 +97,7 @@ export async function startInteractive(engine, { shotById, shots, profile, param
         // A held pointer can keep RAF awake after accumulation has finished. Only consecutive
         // rendered frames measure GPU load; skipped draws are not evidence of a slow device.
         if (active && wasActive && wasRendered && interval > 0 && interval < 2500) {
-          adaptive.observe(interval, now);
+          if (moving) adaptive.observe(interval, now);
           frameEMA = frameEMA ? frameEMA * 0.85 + interval * 0.15 : interval;
         }
         lastRendered = now;

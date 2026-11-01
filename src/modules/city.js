@@ -346,6 +346,7 @@ function lighthouseFire(engine, [x, y, z]) {
   const tongues = [];
   for (let i = 0; i < 5; i++) {
     const f = new THREE.Mesh(new THREE.ConeGeometry(0.55 - i * 0.06, 2.2 - i * 0.2, 7, 1), flameMat);
+    f.userData.dynamicTransform = true;
     const a = i * 1.3;
     f.position.set(x + Math.cos(a) * 0.35 * (i > 0), y + 1.2, z + Math.sin(a) * 0.35 * (i > 0));
     f.castShadow = false; f.userData.castShadow = false;
