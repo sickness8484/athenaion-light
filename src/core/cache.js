@@ -171,17 +171,8 @@ export function loadGeneratedBinary(name) {
         const response = await fetch(assetURL(`generated/${entry.file}`));
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         if (!response.body) throw new Error('empty geometry response');
-        let received = 0;
-        const stream = response.body.pipeThrough(new DecompressionStream('gzip')).pipeThrough(new TransformStream({
-          transform(chunk, controller) {
-            received += chunk.byteLength;
-            if (received > entry.rawBytes) throw new Error('geometry exceeds declared size');
-            controller.enqueue(chunk);
-          },
-        }));
-        const buffer = await new Response(stream).arrayBuffer();
-        if (buffer.byteLength !== entry.rawBytes) throw new Error('truncated geometry response');
-        return buffer;
+        const stream = response.body.pipeThrough(new DecompressionStream('gzip'));
+        return await readGeometryStream(stream, entry.rawBytes);
       } catch (error) { throw bakedError(name, error); }
     })();
     binaryPromises.set(name, promise);
@@ -190,4 +181,37 @@ export function loadGeneratedBinary(name) {
     promise.then(forget, forget);
   }
   return promise;
+}
+
+/**
+ * A published bake supplies its exact decoded length. Fill that one allocation directly:
+ * Response.arrayBuffer() may otherwise collect all decoded chunks before allocating and
+ * copying the final buffer (almost another 97 MB for the preview terrain alone).
+ */
+export async function readGeometryStream(stream, rawBytes) {
+  if (!Number.isSafeInteger(rawBytes) || rawBytes < 8) throw new Error('invalid geometry size');
+  const reader = stream.getReader();
+  let bytes;
+  try {
+    bytes = new Uint8Array(rawBytes);
+    let received = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!(value instanceof Uint8Array) || value.byteLength > rawBytes - received) {
+        throw new Error('geometry exceeds declared size');
+      }
+      bytes.set(value, received);
+      received += value.byteLength;
+    }
+    if (received !== rawBytes) throw new Error('truncated geometry response');
+    return bytes.buffer;
+  } catch (error) {
+    // Stop both decompression and its upstream fetch on allocation, stream or size errors.
+    // Cancellation can itself fail after a stream error; keep the original diagnosis.
+    try { await reader.cancel(error); } catch { /* already errored */ }
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
 }

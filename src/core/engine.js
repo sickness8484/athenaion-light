@@ -14,6 +14,7 @@ import { RNG, halton } from './rng.js';
 import { dirFromAzEl, SUN as SUN_DEFAULT } from '../world/layout.js';
 import { LOOKS } from '../world/looks.js';
 import { freezeStaticTransforms } from './static-transforms.js';
+import { compileInBatches } from './compile.js';
 
 const LIT = (m) => m.isMeshStandardMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial || m.isMeshToonMaterial;
 
@@ -179,7 +180,7 @@ export class Engine {
   }
 
   /** Compile the same HDR variants used for drawing, including the offscreen volumes. */
-  async compileScene() {
+  async compileScene({ onProgress } = {}) {
     if (this._needsMaterialPatch) this.ensurePatched();
     const renderer = this.renderer;
     const target = renderer.getRenderTarget();
@@ -188,7 +189,11 @@ export class Engine {
     try {
       // The canvas uses a different output-color-space variant from our HDR target.
       renderer.setRenderTarget(this.pipeline.target);
-      await renderer.compileAsync(this.scene, this.camera);
+      if (this.quality.memoryConstrained) {
+        await compileInBatches(renderer, this.scene, this.camera, { onProgress });
+      } else {
+        await renderer.compileAsync(this.scene, this.camera);
+      }
       for (const pass of this.registry.clouds?.volumePasses || []) {
         await renderer.compileAsync(pass.scene, this.camera);
       }

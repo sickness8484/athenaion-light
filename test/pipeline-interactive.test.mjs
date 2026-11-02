@@ -103,6 +103,58 @@ test('active frames avoid history reads and writes, then restore fresh full-prec
   p.dispose();
 });
 
+test('mobile history halves storage without changing sample weights, size or HDR range', () => {
+  const r = renderer(), mobile = new Pipeline(r, 679, 1471, { ...quality, memoryConstrained: true });
+  const desktop = new Pipeline(renderer(), 679, 1471, quality);
+  assert(mobile.acc.every(target => target.texture.type === THREE.HalfFloatType));
+  assert(desktop.acc.every(target => target.texture.type === THREE.FloatType));
+  for (const target of mobile.acc) {
+    assert.equal(target.width, 679); assert.equal(target.height, 1471);
+    assert.equal(target.texture.format, THREE.RGBAFormat);
+  }
+  mobile.setInteractiveState({ moving: false, nowMs: 0 });
+  for (let sample = 0; sample < 32; sample++) mobile.addSample({}, {});
+  const weights = r.passLog.filter(pass => pass.material === mobile.copyMat).map(pass => pass.weight);
+  assert.deepEqual(weights, Array.from({ length: 32 }, (_, i) => 1 / (i + 1)));
+
+  // Conservative binary16 truncation model (actual GPUs generally round to
+  // nearest). Include bright sun/black alternation, ramps and dark detail.
+  // Average each sample, never sum HDR values into a half-float target.
+  const half = value => THREE.DataUtils.fromHalfFloat(THREE.DataUtils.toHalfFloat(value));
+  for (const samples of [12, 16, 32]) for (const scale of [1e-6, 1e-4, 0.01, 1, 100, 10000, 60000]) {
+    for (const sequence of [() => 1, i => i % 2 ? 1 : 0.05, i => 0.1 + 0.9 * i / samples,
+      i => 0.2 + 0.8 * ((i * 79) % 101) / 101]) {
+      let reference = 0, stored = 0;
+      for (let i = 0; i < samples; i++) {
+        const next = half(Math.min(60000, scale * sequence(i)));
+        reference += (next - reference) * weights[i];
+        stored = half(stored + (next - stored) * weights[i]);
+        assert(Number.isFinite(stored) && stored >= 0 && stored <= 60000);
+      }
+      assert(Math.abs(stored - reference) <= Math.max(0.001, reference) * 0.01,
+        `binary16 error exceeded 1% of radiance (floor 0.001): ${stored} vs ${reference}`);
+    }
+  }
+  mobile.dispose(); desktop.dispose();
+});
+
+test('scalar tone pyramids omit only unused color channels and preserve the older float-extension fallback', () => {
+  const p = new Pipeline(renderer(), 640, 360, quality);
+  p.resolve();
+  for (const target of [...p.ltm, ...p.meterRTs]) {
+    assert.equal(target.texture.format, THREE.RedFormat);
+    assert.equal(target.texture.type, THREE.HalfFloatType);
+    assert.equal(target.texture.minFilter, THREE.LinearFilter);
+    assert.equal(target.texture.magFilter, THREE.LinearFilter);
+    assert.equal(target.texture.colorSpace, THREE.NoColorSpace);
+  }
+  assert(p.mips.every(target => target.texture.format === THREE.RGBAFormat), 'Bloom still needs all color channels');
+  const fallback = new Pipeline(renderer({ floatOK: false }), 640, 360, quality);
+  fallback.resolve();
+  assert([...fallback.ltm, ...fallback.meterRTs].every(target => target.texture.format === THREE.RGBAFormat));
+  p.dispose(); fallback.dispose();
+});
+
 test('active tone measurement is asynchronous, bounded to one read, and retains the exact tone solver and smoothing', async () => {
   GRADE.uAutoLevels.value = 0.8;
   const r = renderer({ async: true }), p = new Pipeline(r, 640, 360, quality);

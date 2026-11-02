@@ -1,7 +1,7 @@
 // Far-field grid loading (baked or built at runtime) + registration with heightfield.js.
 import * as THREE from 'three';
 import { loadOrBuild } from '../core/cache.js';
-import { generateFarGrid, FAR_VERSION, boxBlur } from './farfield.js';
+import { generateFarGrid, FAR_VERSION } from './farfield.js';
 import { setFarGrid } from '../world/heightfield.js';
 
 export const FAR_NAME = 'terrain-far-' + FAR_VERSION;
@@ -48,6 +48,43 @@ function toHalf(v) {
 }
 
 /**
+ * Same separable Float32 blur as the terrain generator, with one grid plus one line
+ * of scratch instead of two complete grids. Copy a row/column before overwriting it,
+ * preserving the original addition order, edge clamping and Float32 rounding.
+ */
+export function blurFarTextureHeight(src, nx, nz, r, passes = 3) {
+  if (!Number.isSafeInteger(nx) || nx < 1 || !Number.isSafeInteger(nz) || nz < 1 ||
+      nx * nz !== src.length || !Number.isSafeInteger(r) || r < 0 ||
+      !Number.isSafeInteger(passes) || passes < 0) throw new Error('invalid far texture grid');
+  const out = Float32Array.from(src);
+  if (!passes) return out;
+  const line = new Float32Array(Math.max(nx, nz));
+  const width = 2 * r + 1;
+  for (let p = 0; p < passes; p++) {
+    for (let j = 0; j < nz; j++) {
+      const row = j * nx;
+      line.set(out.subarray(row, row + nx));
+      let acc = 0;
+      for (let i = -r; i <= r; i++) acc += line[Math.min(nx - 1, Math.max(0, i))];
+      for (let i = 0; i < nx; i++) {
+        out[row + i] = acc / width;
+        acc += line[Math.min(nx - 1, i + r + 1)] - line[Math.max(0, i - r)];
+      }
+    }
+    for (let i = 0; i < nx; i++) {
+      for (let j = 0; j < nz; j++) line[j] = out[j * nx + i];
+      let acc = 0;
+      for (let j = -r; j <= r; j++) acc += line[Math.min(nz - 1, Math.max(0, j))];
+      for (let j = 0; j < nz; j++) {
+        out[j * nx + i] = acc / width;
+        acc += line[Math.min(nz - 1, j + r + 1)] - line[Math.max(0, j - r)];
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * GPU texture of the far grid: RGBA16F = (normal.x, normal.z, height/8, curvature) with linear filtering.
  * curvature = Laplacian (m) / cell, >0 concave (gullies, couloirs), <0 convex (ribs, crests): mostly measured
  * at the ~100 m scale (blurred field) so snow fields and rock ribs follow the real structure.
@@ -55,7 +92,7 @@ function toHalf(v) {
 export function farTexture(g) {
   const { nx, nz, cell, data } = g;
   const arr = new Uint16Array(nx * nz * 4);
-  const hb = boxBlur(data, nx, nz, 3, 2);
+  const hb = blurFarTextureHeight(data, nx, nz, 3, 2);
   const B = (i, j) => hb[Math.min(nz - 1, Math.max(0, j)) * nx + Math.min(nx - 1, Math.max(0, i))];
   for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
     const c = j * nx + i;

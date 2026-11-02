@@ -70,6 +70,28 @@ export class Lighting {
     for (const l of this.csm.lights) {
       l.shadow.normalBias = 0.06;
       l.color.copy(SUN.color);
+      if (quality.memoryConstrained && engine.renderer.shadowMap?.type === THREE.PCFShadowMap) {
+        // Three r186's PCF path samples the native depth texture, not the color
+        // attachment. Keep its exact depth type, comparison and filtering while
+        // replacing the unused RGBA8 attachment with renderable WebGL 2 R8.
+        // Pre-create only the target descriptors: GPU allocation still occurs
+        // lazily in the first shadow pass. WebGLShadowMap owns resize/disposal.
+        const size = l.shadow.mapSize.clone().multiply(l.shadow.getFrameExtents());
+        const target = new THREE.WebGLRenderTarget(size.x, size.y, {
+          format: THREE.RedFormat, type: THREE.UnsignedByteType,
+          minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+          depthBuffer: true, stencilBuffer: false, generateMipmaps: false,
+        });
+        const depth = new THREE.DepthTexture(size.x, size.y, THREE.UnsignedIntType);
+        depth.name = l.name + '.shadowMap';
+        depth.format = THREE.DepthFormat;
+        const reversed = engine.renderer.state?.buffers.depth.getReversed();
+        depth.compareFunction = reversed ? THREE.GreaterEqualCompare : THREE.LessEqualCompare;
+        depth.minFilter = depth.magFilter = THREE.LinearFilter;
+        target.depthTexture = depth;
+        l.shadow.map = target;
+        l.shadow.camera.updateProjectionMatrix();
+      }
     }
     // shared CSM uniforms injected into every lit material by engine.patchMaterial()
     this.csmUniforms = {

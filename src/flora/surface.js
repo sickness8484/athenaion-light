@@ -7,6 +7,67 @@ import { heightAt } from '../world/heightfield.js';
 
 const LAYER = 29;
 
+// These are construction-time position/id probes, not shaded scene frames.
+// In particular, do not build the world's CSM maps while making a small probe.
+// Keep the pending shadow update for the first real frame and restore all state
+// even when a GPU read fails, so an optional flora failure cannot break rendering.
+function readSurfacePixels(renderer, scene, camera, material, target, tagged) {
+  const previous = {
+    override: scene.overrideMaterial, background: scene.background,
+    target: renderer.getRenderTarget(), face: renderer.getActiveCubeFace?.() || 0,
+    mip: renderer.getActiveMipmapLevel?.() || 0,
+    color: renderer.getClearColor(new THREE.Color()), alpha: renderer.getClearAlpha(),
+    viewport: renderer.getViewport(new THREE.Vector4()),
+    scissor: renderer.getScissor(new THREE.Vector4()), scissorTest: renderer.getScissorTest(),
+    autoClear: renderer.autoClear, xr: renderer.xr.enabled,
+    shadowEnabled: renderer.shadowMap.enabled, shadowAuto: renderer.shadowMap.autoUpdate,
+    shadowNeeds: renderer.shadowMap.needsUpdate,
+    objects: tagged.map((object) => ({ object, mask: object.layers.mask, before: object.onBeforeRender })),
+  };
+  try {
+    previous.objects.forEach(({ object, before }, i) => {
+      object.layers.enable(LAYER);
+      object.onBeforeRender = function (...args) {
+        if (before) before.apply(this, args);
+        if (args[4] === material) {
+          material.uniforms.uId.value = i + 1;
+          material.uniformsNeedUpdate = true;
+        }
+      };
+    });
+    renderer.shadowMap.enabled = false;
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = false;
+    renderer.xr.enabled = false;
+    renderer.autoClear = false;
+    scene.overrideMaterial = material; scene.background = null;
+    renderer.setRenderTarget(target);
+    renderer.setScissorTest(false);
+    renderer.setClearColor(0x000000, 0);
+    renderer.clear(true, true, false);
+    renderer.render(scene, camera);
+    const buffer = new Float32Array(target.width * target.height * 4);
+    renderer.readRenderTargetPixels(target, 0, 0, target.width, target.height, buffer);
+    return buffer;
+  } finally {
+    scene.overrideMaterial = previous.override; scene.background = previous.background;
+    for (const { object, mask, before } of previous.objects) {
+      object.layers.mask = mask; object.onBeforeRender = before;
+    }
+    renderer.setRenderTarget(previous.target, previous.face, previous.mip);
+    renderer.setViewport(previous.viewport);
+    renderer.setScissor(previous.scissor);
+    renderer.setScissorTest(previous.scissorTest);
+    renderer.setClearColor(previous.color, previous.alpha);
+    renderer.autoClear = previous.autoClear;
+    renderer.xr.enabled = previous.xr;
+    renderer.shadowMap.enabled = previous.shadowEnabled;
+    renderer.shadowMap.autoUpdate = previous.shadowAuto;
+    renderer.shadowMap.needsUpdate = previous.shadowNeeds;
+    target.dispose(); material.dispose();
+  }
+}
+
 const VERT = /* glsl */ `
 #include <common>
 #include <batching_pars_vertex>
@@ -48,13 +109,9 @@ export function surfaceMap(engine, cx, cz, size, res, o = {}) {
     if (m.alphaTest > 0 || m.userData?.isFoliage) return;
     // skip things hanging in the air that are clearly not ground (e.g. our hero leaves) by name
     if (/leaf|leaves|foliage|cypress|tree|ivy|grass|water/i.test(obj.name || '')) return;
-    obj.layers.enable(LAYER);
     tagged.push(obj);
   });
   const mat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide, uniforms: { uId: { value: 0 } } });
-  // per-object id in the blue channel (which mesh owns the top surface)
-  const prevOBR = tagged.map((o) => o.onBeforeRender);
-  tagged.forEach((o, i) => { const prev = prevOBR[i]; o.onBeforeRender = function (...args) { if (prev) prev.apply(this, args); if (args[4] === mat) { mat.uniforms.uId.value = i + 1; mat.uniformsNeedUpdate = true; } }; });
   const rt = new THREE.WebGLRenderTarget(res, res, { type: THREE.FloatType, format: THREE.RGBAFormat, depthBuffer: true, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
   const half = size / 2;
   const cam = new THREE.OrthographicCamera(-half, half, half, -half, 1, 4000);
@@ -63,20 +120,7 @@ export function surfaceMap(engine, cx, cz, size, res, o = {}) {
   cam.lookAt(cx, 0, cz);
   cam.layers.set(LAYER);
   cam.updateMatrixWorld(true);
-  const prevOverride = scene.overrideMaterial, prevBg = scene.background, prevRT = renderer.getRenderTarget();
-  const prevClear = renderer.getClearColor(new THREE.Color()), prevAlpha = renderer.getClearAlpha();
-  scene.overrideMaterial = mat; scene.background = null;
-  renderer.setRenderTarget(rt);
-  renderer.setClearColor(0x000000, 0);
-  renderer.clear(true, true, false);
-  renderer.render(scene, cam);
-  const buf = new Float32Array(res * res * 4);
-  renderer.readRenderTargetPixels(rt, 0, 0, res, res, buf);
-  renderer.setRenderTarget(prevRT);
-  renderer.setClearColor(prevClear, prevAlpha);
-  scene.overrideMaterial = prevOverride; scene.background = prevBg;
-  tagged.forEach((t, i) => { t.layers.disable(LAYER); t.onBeforeRender = prevOBR[i]; });
-  rt.dispose(); mat.dispose();
+  const buf = readSurfacePixels(renderer, scene, cam, mat, rt, tagged);
 
   const H = new Float32Array(res * res);
   const valid = new Uint8Array(res * res);
@@ -149,32 +193,16 @@ export function viewSurface(engine, shot, w, h, o = {}) {
     if (!m || m.transparent || !(m.isMeshStandardMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial)) return;
     if (m.alphaTest > 0 || m.userData?.isFoliage) return;
     if (/leaf|leaves|foliage|cypress|tree|ivy|grass|water/i.test(obj.name || '')) return;
-    obj.layers.enable(LAYER);
     tagged.push(obj);
   });
   const mat = new THREE.ShaderMaterial({ vertexShader: VERT_W, fragmentShader: FRAG_W, side: THREE.DoubleSide, uniforms: { uId: { value: 0 } } });
-  const prevOBR = tagged.map((t) => t.onBeforeRender);
-  tagged.forEach((t, i) => { const prev = prevOBR[i]; t.onBeforeRender = function (...args) { if (prev) prev.apply(this, args); if (args[4] === mat) { mat.uniforms.uId.value = i + 1; mat.uniformsNeedUpdate = true; } }; });
   const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.FloatType, format: THREE.RGBAFormat, depthBuffer: true, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
   const cam = new THREE.PerspectiveCamera(shot.fov ?? 40, 1672 / 941, shot.near ?? 0.5, 30000);
   cam.position.set(...shot.pos);
   cam.lookAt(new THREE.Vector3(...shot.target));
   cam.updateProjectionMatrix(); cam.updateMatrixWorld(true);
   cam.layers.set(LAYER);
-  const prevOverride = scene.overrideMaterial, prevBg = scene.background, prevRT = renderer.getRenderTarget();
-  const prevClear = renderer.getClearColor(new THREE.Color()), prevAlpha = renderer.getClearAlpha();
-  scene.overrideMaterial = mat; scene.background = null;
-  renderer.setRenderTarget(rt);
-  renderer.setClearColor(0x000000, 0);
-  renderer.clear(true, true, false);
-  renderer.render(scene, cam);
-  const buf = new Float32Array(w * h * 4);
-  renderer.readRenderTargetPixels(rt, 0, 0, w, h, buf);
-  renderer.setRenderTarget(prevRT);
-  renderer.setClearColor(prevClear, prevAlpha);
-  scene.overrideMaterial = prevOverride; scene.background = prevBg;
-  tagged.forEach((t, i) => { t.layers.disable(LAYER); t.onBeforeRender = prevOBR[i]; });
-  rt.dispose(); mat.dispose();
+  const buf = readSurfacePixels(renderer, scene, cam, mat, rt, tagged);
   // (i, j): i left→right, j top→bottom
   const k = (i, j) => (i < 0 || j < 0 || i >= w || j >= h ? -1 : (h - 1 - j) * w + i);
   const id = (i, j) => { const q = k(i, j); return q < 0 ? 0 : Math.round(buf[q * 4 + 3]); };

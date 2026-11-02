@@ -222,11 +222,16 @@ function drawPineTuft(ctx, cell, rng) {
 
 // ===================================================================== mips + texture
 /** colour-dilate transparent texels and build a coverage-preserving mip chain */
-function buildTexture(canvas, alphaRef = 0.5, opaqueCells = []) {
+export function buildAtlasTexture(canvas, alphaRef = 0.5, opaqueCells = []) {
   const S = canvas.width;
   const ctx = canvas.getContext('2d');
   const img = ctx.getImageData(0, 0, S, S);
-  const d = new Uint8Array(img.data.buffer.slice(0));
+  // getImageData already owns a copy of the canvas pixels. Keep a Uint8Array view
+  // (not Uint8ClampedArray: its rounding would change the authored mip colours).
+  const d = new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength);
+  // Both atlas callers have finished painting. Release the native canvas backing
+  // store before allocating mip levels, rather than waiting for browser GC.
+  canvas.width = 0; canvas.height = 0;
   // 1. per-cell average colour → fill transparent texels (no dark fringes at lower mips)
   const covTarget = new Float32Array(GRID * GRID);
   for (let c = 0; c < GRID * GRID; c++) {
@@ -448,7 +453,7 @@ export function cypressAtlas() {
   drawPatch(ctx, CYP.patchDark, rng, { count: 260, size: 0.14, lo: 0.08, hi: 0.4, bg: 0.02 });
   drawBark(ctx, CYP.bark, rng, { base: '#4f4136', dark: '#2a211b', light: '#7d6c5c', strip: 7 });
   const t2 = performance.now();
-  _cyp = buildTexture(cv, 0.5, [...CYP.patch, CYP.patchDark, CYP.bark]);
+  _cyp = buildAtlasTexture(cv, 0.5, [...CYP.patch, CYP.patchDark, CYP.bark]);
   _cyp.name = 'cypressAtlas';
   console.log(`[vegetation] cypress atlas ${Math.round(performance.now() - t0)} ms (tufts ${Math.round(t1 - t0)}, patches ${Math.round(t2 - t1)}, mips ${Math.round(performance.now() - t2)})`);
   return _cyp;
@@ -471,7 +476,8 @@ export function leafAtlas() {
   stampPatch(ctx, src, LEAF.broadPatch, LEAF.broad, rng, { bg: '#121b0c', count: 70, scale: 0.5, rot: 2.5 });
   stampPatch(ctx, src, LEAF.pinePatch, LEAF.pine, rng, { bg: '#162010', count: 60, scale: 0.55, rot: 1.6 });
   stampPatch(ctx, src, LEAF.shrubPatch, LEAF.shrub, rng, { bg: '#141c0e', count: 70, scale: 0.5, rot: 2.5 });
-  _leaf = buildTexture(cv, 0.5, [LEAF.olivePatch, LEAF.broadPatch, LEAF.pinePatch, LEAF.shrubPatch]);
+  src.width = 0; src.height = 0; // patch stamping is complete; no texture retains this canvas
+  _leaf = buildAtlasTexture(cv, 0.5, [LEAF.olivePatch, LEAF.broadPatch, LEAF.pinePatch, LEAF.shrubPatch]);
   _leaf.name = 'leafAtlas';
   console.log(`[vegetation] leaf atlas ${Math.round(performance.now() - t0)} ms`);
   return _leaf;

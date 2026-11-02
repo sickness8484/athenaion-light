@@ -6,15 +6,48 @@ import { SKY } from '../src/core/sky.js';
 import { ATMO } from '../src/core/atmosphere.js';
 import { LENS } from '../src/core/pipeline.js';
 
-function fixture() {
+function fixture({ memoryConstrained = false, shadowType = THREE.PCFShadowMap, reversed = false } = {}) {
   const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.5, 60000);
   camera.position.set(0, 20, 100); camera.lookAt(0, 5, 0); camera.updateMatrixWorld();
   const engine = {
-    scene: new THREE.Scene(), camera, renderer: {}, registry: {},
-    quality: { shadowMaxFar: 2000, cascades: 3, shadowMapSize: 1024 },
+    scene: new THREE.Scene(), camera, registry: {},
+    renderer: { shadowMap: { type: shadowType }, state: { buffers: { depth: { getReversed: () => reversed } } } },
+    quality: { shadowMaxFar: 2000, cascades: 3, shadowMapSize: 1024, memoryConstrained },
   };
   return new Lighting(engine);
 }
+
+test('mobile PCF shadows preserve native depth precision, comparison and map size with compact unused color', () => preserveUniforms(() => {
+  for (const reversed of [false, true]) {
+    const lighting = fixture({ memoryConstrained: true, reversed });
+    for (const light of lighting.csm.lights) {
+      const shadow = light.shadow, target = shadow.map;
+      assert.equal(target.width, shadow.mapSize.x);
+      assert.equal(target.height, shadow.mapSize.y);
+      assert.equal(target.texture.type, THREE.UnsignedByteType);
+      assert.equal(target.texture.format, THREE.RedFormat);
+      assert.equal(target.depthBuffer, true);
+      assert.equal(target.stencilBuffer, false);
+      assert.equal(target.depthTexture.type, THREE.UnsignedIntType);
+      assert.equal(target.depthTexture.format, THREE.DepthFormat);
+      assert.equal(target.depthTexture.compareFunction, reversed ? THREE.GreaterEqualCompare : THREE.LessEqualCompare);
+      assert.equal(target.depthTexture.minFilter, THREE.LinearFilter);
+      assert.equal(target.depthTexture.magFilter, THREE.LinearFilter);
+      assert.equal(shadow.normalBias, 0.06);
+      let disposed = 0;
+      target.addEventListener('dispose', () => disposed++);
+      target.setSize(512, 512);
+      assert.equal(disposed, 1, 'Three retains normal target resize/disposal ownership');
+      target.dispose();
+    }
+    lighting.csm.remove(); lighting.csm.dispose();
+  }
+  for (const options of [{ memoryConstrained: false }, { memoryConstrained: true, shadowType: THREE.VSMShadowMap }]) {
+    const lighting = fixture(options);
+    assert(lighting.csm.lights.every(light => light.shadow.map === null), 'Other paths retain Three defaults');
+    lighting.csm.remove(); lighting.csm.dispose();
+  }
+}));
 
 function preserveUniforms(fn) {
   const chunks = Object.fromEntries(['lights_pars_begin', 'lights_fragment_begin'].map((name) => [name, THREE.ShaderChunk[name]]));

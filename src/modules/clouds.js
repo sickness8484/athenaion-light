@@ -461,6 +461,9 @@ function makeDepthGrabber(engine) {
         rt?.dispose();
         rt = new THREE.WebGLRenderTarget(w, h, {
           depthBuffer: true, stencilBuffer: false, type: THREE.UnsignedByteType,
+          // Only depth is copied/read. R8 keeps a complete framebuffer without
+          // reserving three unused full-resolution color channels on mobile.
+          format: engine.quality.memoryConstrained ? THREE.RedFormat : THREE.RGBAFormat,
           depthTexture: new THREE.DepthTexture(w, h, THREE.UnsignedIntType),
         });
         rt.depthTexture.minFilter = rt.depthTexture.magFilter = THREE.NearestFilter;

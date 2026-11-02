@@ -12,6 +12,8 @@ test('runtime profiles preserve authored geometry and independent original prese
   assert.equal(getRuntimeProfile('invalid').key, 'auto');
   assert.equal(getRuntimeProfile('auto', true).maxAcc, 16);
   assert.equal(getRuntimeProfile('auto').maxAcc, 32);
+  assert.equal(withRuntimeProfile(getQuality('preview'), getRuntimeProfile('auto', true)).memoryConstrained, true);
+  assert.equal(withRuntimeProfile(getQuality('preview'), getRuntimeProfile('auto', false)).memoryConstrained, false);
 });
 test('viewport budgets bound pixels and preserve aspect within rounding', () => {
   for (const [w,h] of [[3840,2160],[1440,900],[390,844],[1,1],[8000,300]]) {

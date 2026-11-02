@@ -7,6 +7,7 @@ import { createEngine } from './core/engine.js';
 import { getQuality, withRuntimeProfile } from './core/quality.js';
 import { getRuntimeProfile, runtimeViewport } from './core/performance.js';
 import { SHOTS } from './world/shots.js';
+import { clearGeometryCache } from './core/cache.js';
 
 const P = new URLSearchParams(location.search);
 const mobile = matchMedia('(pointer: coarse)').matches;
@@ -56,6 +57,8 @@ async function boot() {
     const { buildWorld } = await import('./world/index.js');
     await buildWorld(engine);
   }
+  // Meshes keep their own buffers; release cache-only LODs before GPU preparation.
+  clearGeometryCache();
   stage('光と空を準備中', 16);
   engine.prepareScene({ deferEnvironment: true });
   const buildMs = Math.round(performance.now() - t0);
@@ -106,7 +109,9 @@ async function boot() {
   else engine.applyShot(testInfo.shot);
   stage('光と影を仕上げています', 17);
   const tc = performance.now();
-  await engine.compileScene();
+  await engine.compileScene({
+    onProgress: ({ completed, total }) => stage(`光と影を仕上げています (${Math.round(completed / total * 100)}%)`, 17),
+  });
   console.log(`[main] shaders compiled in ${Math.round(performance.now() - tc)} ms`);
   window.__READY = true;
 

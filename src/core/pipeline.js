@@ -109,9 +109,9 @@ vec4 readHDR(sampler2D source, vec2 uv) {
 }
 `;
 
-function rt(w, h, type, samples = 0, depth = false) {
+function rt(w, h, type, samples = 0, depth = false, format = THREE.RGBAFormat) {
   return new THREE.WebGLRenderTarget(w, h, {
-    type, format: THREE.RGBAFormat, colorSpace: THREE.LinearSRGBColorSpace,
+    type, format, colorSpace: format === THREE.RGBAFormat ? THREE.LinearSRGBColorSpace : THREE.NoColorSpace,
     minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
     depthBuffer: depth, stencilBuffer: false, samples, generateMipmaps: false,
   });
@@ -164,7 +164,14 @@ export class Pipeline {
     this.quality = quality;
     const gl = renderer.getContext();
     const floatOK = !!gl.getExtension('EXT_color_buffer_float');
-    this.accType = floatOK ? THREE.FloatType : THREE.HalfFloatType;
+    // Mobile interactive views converge over a short sequence. The running mean
+    // stays within the scene's RGBA16F range; no HDR sum is stored. Retain RGBA32F
+    // for desktop/offline work, which may accumulate many more samples.
+    this.accType = floatOK && !quality.memoryConstrained ? THREE.FloatType : THREE.HalfFloatType;
+    // Both these pyramids contain only a scalar in .r. R16F keeps that value and
+    // its filtering identical while removing three unused channels. The float
+    // extension guarantees R16F renderability; retain RGBA on older fallbacks.
+    this.scalarFormat = floatOK ? THREE.RedFormat : THREE.RGBAFormat;
     this.reduceMeter = floatOK;
     this.sceneRT = rt(w, h, THREE.HalfFloatType, quality.msaa || 0, true);
     this.acc = [rt(w, h, this.accType), rt(w, h, this.accType)];
@@ -244,7 +251,7 @@ export class Pipeline {
     let lw = w, lh = h;
     for (let i = 0; i < 7; i++) {
       lw = Math.max(1, Math.floor(lw / 2)); lh = Math.max(1, Math.floor(lh / 2));
-      this.ltm.push(rt(lw, lh, THREE.HalfFloatType));
+      this.ltm.push(rt(lw, lh, THREE.HalfFloatType, 0, false, this.scalarFormat));
     }
     this.ltmLumMat = new THREE.ShaderMaterial({
       uniforms: { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() }, uDirectHDR: this._hdrDirectUniform },
@@ -635,7 +642,8 @@ export class Pipeline {
     // r5b (video): taps are clamped (the sun disk / speculars no longer swing the log-average when leaves move across
     // the sun) and the meter is temporally smoothed (EMA, like the auto tone curve) on consecutive frames
     if (GRADE.uAutoExpo.value > 0) {
-      this.meterRTs ||= [rt(128, 72, THREE.HalfFloatType), rt(128, 72, THREE.HalfFloatType)];
+      this.meterRTs ||= [rt(128, 72, THREE.HalfFloatType, 0, false, this.scalarFormat),
+        rt(128, 72, THREE.HalfFloatType, 0, false, this.scalarFormat)];
       this.meterMat ||= new THREE.ShaderMaterial({
         uniforms: { tSrc: { value: null }, tPrev: { value: null }, uW: { value: 1 }, uDirectHDR: this._hdrDirectUniform }, vertexShader: FS_VERT, depthTest: false, depthWrite: false,
         fragmentShader: /* glsl */ `

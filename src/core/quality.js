@@ -28,6 +28,7 @@ export function getQuality(name) { return { ...(QUALITY[name] || QUALITY.preview
 // Geometry/detail/density remain identical to the chosen upstream preset.
 export function withRuntimeProfile(quality, profile) {
   return { ...quality, msaa: profile.msaa,
+    memoryConstrained: !!profile.mobile,
     interactiveAA: true,
     interactiveVolumes: true,
     shadowMapSize: Math.min(quality.shadowMapSize, profile.shadowMapSize),
