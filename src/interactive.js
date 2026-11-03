@@ -3,26 +3,30 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { AdaptiveResolution, runtimeViewport } from './core/performance.js';
 const SHOT_NAMES = ['岩山からの全景','ラグーンと円形神殿','オリーブのテラス','峡谷の上空','神殿の正面','大階段','川と水道橋','倒れた巨像','廃墟の回廊'];
 const SETTLE_MS = 220;
-export async function startInteractive(engine, { shotById, shots, profile, params, showError }) {
+export async function startInteractive(engine, { shotById, shots, profile, params, showError, waitForFirstFrame, onReady }) {
   const $ = (id) => document.getElementById(id);
   const camera = engine.camera;
   const controls = new OrbitControls(camera, engine.canvas);
+  controls.enabled = !waitForFirstFrame;
   controls.enableDamping = true; controls.dampingFactor = 0.12;
   controls.minDistance = 0.2; controls.maxDistance = 20000;
   const adaptive = new AdaptiveResolution(profile);
   engine.registry.water?.reflection?.configureUpdatePolicy({ movingIntervalMs: profile.reflectionIntervalMs, animatedIntervalMs: profile.reflectionIntervalMs, maxPositionDelta: 8, maxAngleDelta: 0.08 });
   let dirty = true, pressed = false, animation = params.get('animate') === '1';
   let raf = 0, halted = false, lastChange = performance.now(), lastFrame = 0;
+  let presented = false, framePending = false;
   let lastRendered = 0, wasActive = false, wasRendered = false, frameEMA = 0, hudAt = 0, scale = -1;
   const keys = new Set();
   const forward = new THREE.Vector3(), right = new THREE.Vector3(), delta = new THREE.Vector3();
-  const wake = () => { if (!halted && !document.hidden && !raf) raf = requestAnimationFrame(tick); };
+  const wake = () => { if (!halted && !framePending && !document.hidden && !raf) raf = requestAnimationFrame(tick); };
   const changed = () => { dirty = true; lastChange = performance.now(); wake(); };
   controls.addEventListener('change', changed);
   controls.addEventListener('start', () => { pressed = true; changed(); });
   controls.addEventListener('end', () => { pressed = false; changed(); });
   const syncTarget = () => { controls.target.set(...engine.shot.target); controls.update(); changed(); };
+  const canInteract = () => !halted && (!waitForFirstFrame || presented);
   const go = (id) => {
+    if (!canInteract()) return;
     const shot = shotById(id); if (!shot) return;
     engine.applyShot(shot); syncTarget(); $('shot').value = String(shot.id);
     const url = new URL(location.href); url.searchParams.set('shot', shot.id); history.replaceState(null, '', url);
@@ -34,11 +38,12 @@ export async function startInteractive(engine, { shotById, shots, profile, param
   $('shot').addEventListener('change', (event) => go(event.target.value));
   $('profile').value = profile.key;
   $('profile').addEventListener('change', (event) => {
+    if (!canInteract()) return;
     const url = new URL(location.href); url.searchParams.set('profile', event.target.value);
     url.searchParams.set('shot', engine.shot.id || 1); location.assign(url.href);
   });
   const showMotion = () => { $('motion').setAttribute('aria-pressed', String(animation)); $('motion').textContent = animation ? '動きを止める' : '動きをつける'; };
-  $('motion').addEventListener('click', () => { animation = !animation; showMotion(); changed(); }); showMotion();
+  $('motion').addEventListener('click', () => { if (!canInteract()) return; animation = !animation; showMotion(); changed(); }); showMotion();
   $('reset').addEventListener('click', () => go(engine.shot.id || 1));
   $('fullscreen').hidden = !document.fullscreenEnabled;
   $('fullscreen').addEventListener('click', async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); } catch { $('status').textContent = 'この環境では全画面にできません'; } });
@@ -46,7 +51,7 @@ export async function startInteractive(engine, { shotById, shots, profile, param
   syncTarget();
   const formFocused = (event) => /INPUT|SELECT|TEXTAREA|BUTTON/.test(event.target?.tagName) || event.target?.isContentEditable;
   addEventListener('keydown', (event) => {
-    if (formFocused(event) || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (!canInteract() || formFocused(event) || event.ctrlKey || event.metaKey || event.altKey) return;
     if (/^[1-9]$/.test(event.key)) { go(event.key); return; }
     if (['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','ShiftLeft','ShiftRight'].includes(event.code)) { keys.add(event.code); event.preventDefault(); changed(); }
   });
@@ -57,7 +62,17 @@ export async function startInteractive(engine, { shotById, shots, profile, param
     keys.clear(); pressed = false; lastFrame = lastRendered = 0; wasActive = wasRendered = false;
     if (document.hidden) { cancelAnimationFrame(raf); raf = 0; } else changed();
   });
-  window.__stopInteractive = () => { halted = true; cancelAnimationFrame(raf); raf = 0; };
+  window.__stopInteractive = () => { halted = true; controls.enabled = false; cancelAnimationFrame(raf); raf = 0; };
+  const fail = (error) => { if (!halted) { window.__stopInteractive(); showError(error); } };
+  const present = () => {
+    if (halted) return;
+    onReady?.();
+    if (halted) return;
+    presented = true;
+    controls.enabled = true;
+    $('loading').hidden = true; $('brand').hidden = false; $('controls').hidden = false;
+    window.__FIRST_FRAME_MS = Math.round(performance.now());
+  };
   function moveKeys(dt) {
     if (!keys.size) return false;
     camera.getWorldDirection(forward); forward.y = 0; forward.normalize();
@@ -69,10 +84,9 @@ export async function startInteractive(engine, { shotById, shots, profile, param
     delta.normalize().multiplyScalar(dt * (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 105 : 30));
     camera.position.add(delta); controls.target.add(delta); return true;
   }
-  let presented = false;
   function tick(now) {
     raf = 0;
-    if (halted || document.hidden) return;
+    if (halted || framePending || document.hidden) return;
     try {
       const dt = lastFrame ? Math.min(0.06, (now - lastFrame) / 1000) : 0;
       lastFrame = now;
@@ -92,6 +106,7 @@ export async function startInteractive(engine, { shotById, shots, profile, param
         moving, animated: animation, nowMs: now, maxAcc: profile.maxAcc,
         cloudSteps: active ? profile.cloudStepsMoving : engine.quality.cloudSteps,
       });
+      if (halted) return;
       dirty = false;
       if (rendered) {
         // A held pointer can keep RAF awake after accumulation has finished. Only consecutive
@@ -112,11 +127,23 @@ export async function startInteractive(engine, { shotById, shots, profile, param
         hudAt = now;
       }
       if (rendered && !presented) {
-        presented = true; $('loading').hidden = true; $('brand').hidden = false; $('controls').hidden = false;
-        window.__FIRST_FRAME_MS = Math.round(performance.now());
+        if (waitForFirstFrame) {
+          // Do not queue more scene/reflection draws while this first frame is
+          // still pending on the GPU. Controls.update may already have queued RAF.
+          framePending = true; cancelAnimationFrame(raf); raf = 0;
+          Promise.resolve(waitForFirstFrame()).then(() => {
+            if (halted) return;
+            framePending = false;
+            lastFrame = lastRendered = 0; wasActive = wasRendered = false;
+            present();
+            wake();
+          }).catch(fail);
+          return;
+        }
+        present();
       }
       if (active || dirty || !finished) wake();
-    } catch (error) { halted = true; cancelAnimationFrame(raf); raf = 0; showError(error); }
+    } catch (error) { fail(error); }
   }
   wake();
   return { controls, wake, stop: window.__stopInteractive };

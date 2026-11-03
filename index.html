@@ -2,16 +2,18 @@
 <html lang="ja"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#131a1b"><title>Athenaion Light</title>
+<meta name="athenaion-release" content="v4">
 <link rel="stylesheet" href="./styles.css">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
 </head><body>
 <main id="loading" aria-live="polite"><div class="loading-card">
-<p class="eyebrow">AN ANCIENT WORLD, WITH ROOM TO MOVE</p>
+<p class="eyebrow">ATHENAION LIGHT · V4</p>
 <h1>Athenaion <span>Light</span></h1>
 <p id="load-stage">3Dを準備しています</p>
-<progress id="load-progress" max="18" value="0" aria-label="読み込みの進行"></progress>
-<p id="load-detail">初回は地形と彫刻のデータを読み込みます。</p>
-<button id="retry" type="button" hidden>再読み込み</button>
+<progress id="load-progress" max="20" value="0" aria-label="読み込みの進行"></progress>
+<p id="load-detail">風景のデータを読み込み、最初の画面を描いています。</p>
+<button id="retry" type="button" hidden>もう一度読み込む</button>
+<button id="copy-error" type="button" hidden>診断情報をコピー</button>
 </div></main>
 <header id="brand" hidden><strong>ATHENAION <span>LIGHT</span></strong><small id="status">準備中</small></header>
 <nav id="controls" aria-label="風景と描画の設定" hidden>

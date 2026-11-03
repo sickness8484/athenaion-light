@@ -287,7 +287,9 @@ export async function build(engine) {
 
   // ---------------------------------------------------------------- meshes (after the terrace buildings: their platforms + balustrades go into ctx.S)
   const group = new THREE.Group(); group.name = 'acropolis';
-  const meshes = ctx.S.meshes(M);
+  // All additions to this builder are complete. The shot hook below retains ctx's
+  // lexical scope; drop construction storage now that each mesh owns its copy.
+  const meshes = ctx.S.meshes(M, { consume: true });
   for (const m of meshes) group.add(m);
   const bal = ctx.balus.build();
   if (bal) group.add(bal);
@@ -324,7 +326,7 @@ export async function build(engine) {
     if (engine.footprints.isFree(fx, fz, 5)) safe('fountain', () => fountain(ctx2, fx, fz, 3.4, rngQ, wm));
   }
   const g2 = new THREE.Group(); g2.name = 'acropolis-props';
-  for (const m of S2.meshes(M)) g2.add(m);
+  for (const m of S2.meshes(M, { consume: true })) g2.add(m);
   for (const m of ctx2.extra || []) g2.add(m);
   engine.add(g2);
   const bTris = built.reduce((a, b) => a + b.tris, 0) + (prop ? prop.tris : 0);
@@ -388,7 +390,7 @@ export async function build(engine) {
         chamferBox(Bp, Fb, -lo - 0.43, -lo + 0.43, yB + 1.25, yB + 1.42, -0.43, 0.43, 0.04, darker(cP, 0.95));
       }
       const grp = new THREE.Group(); grp.name = 'acropolis-colossus' + cid + '-dress';
-      for (const m of S3.meshes(M)) grp.add(m);
+      for (const m of S3.meshes(M, { consume: true })) grp.add(m);
       const bm = bal.build(); if (bm) grp.add(bm);
       engine.add(grp);
       engine.ensurePatched?.();

@@ -2,16 +2,16 @@
 // Shares the atmosphere uniforms so the horizon matches the aerial perspective of distant terrain.
 // Also used (with uEnvPass = 1, no sun disk, fewer steps) to build the image-based lighting environment.
 //
-// Volumetric clouds use two tileable 3D noise textures generated once on the GPU
-// (ensureCloudTextures(renderer), called by core/lighting.js):
+// Volumetric clouds use two tileable 3D noise textures baked from the shader below.
+// prepareCloudTextures() loads them before the engine/renderer is constructed:
 //   tCloudShape  128³ RGBA: R = Perlin-Worley, G/B/A = Worley fbm at 3 frequencies
-//   tCloudDetail  32³ RGBA: R/G/B = Worley fbm at 3 frequencies (edge erosion)
+//   tCloudDetail  64³ RGBA: R/G/B = Worley fbm at 3 frequencies (edge erosion)
 // CLOUD_GLSL (exported) holds the shared lighting helpers so modules/clouds.js can light its
 // mountain banks and valley mist exactly like the sky clouds.
 import * as THREE from 'three';
-import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { ATMO, ATMO_GLSL } from './atmosphere.js';
 import { NOISE_GLSL } from './glsl.js';
+import { loadBakedCloudTextures } from './cloud-textures.js';
 
 export const SKY = {
   // ---- clear sky
@@ -352,12 +352,9 @@ export function createSky() {
 }
 
 // ------------------------------------------------------------------------------------------
-// Tileable 3D noise generation (GPU, once)
-const GEN_VERT = /* glsl */ `
-varying vec2 vUv;
-void main() { vUv = uv; gl_Position = vec4( position.xy, 0.0, 1.0 ); }
-`;
-const GEN_FRAG = /* glsl */ `
+// Tileable 3D noise generator, run offline by tools/bake-clouds.py.
+// Keep the authored formula and RGBA8 resolution; do not compile or render it during startup.
+export const CLOUD_NOISE_FRAGMENT_SHADER = /* glsl */ `
 varying vec2 vUv;
 uniform float uZ;
 uniform float uMode; // 0 shape, 1 detail
@@ -429,42 +426,26 @@ void main(){
 }
 `;
 
-function make3D(n) {
-  const rt = new THREE.WebGL3DRenderTarget(n, n, n, {
-    format: THREE.RGBAFormat, type: THREE.UnsignedByteType,
-    minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
-    depthBuffer: false, stencilBuffer: false, generateMipmaps: false,
-  });
-  const t = rt.texture;
-  t.wrapS = t.wrapT = t.wrapR = THREE.RepeatWrapping;
-  t.colorSpace = THREE.NoColorSpace;
-  return rt;
+let cloudPreparation;
+
+/** Load both volumes atomically. A missing bake is an error, never a runtime GPU bake. */
+export function prepareCloudTextures(options = {}) {
+  if (SKY.uCloudReady.value > 0.5) return Promise.resolve();
+  if (!cloudPreparation) {
+    const promise = loadBakedCloudTextures(options).then(({ shape, detail }) => {
+      SKY.tCloudShape.value = shape;
+      SKY.tCloudDetail.value = detail;
+      SKY.uCloudReady.value = 1;
+    });
+    cloudPreparation = promise;
+    const clear = () => { if (cloudPreparation === promise) cloudPreparation = undefined; };
+    promise.then(clear, clear);
+  }
+  return cloudPreparation;
 }
 
-/** Generate the cloud noise textures (idempotent). Needs a renderer; call outside of render(). */
-export function ensureCloudTextures(renderer) {
+/** Lighting may only consume textures already prepared by the asynchronous engine factory. */
+export function ensureCloudTextures() {
   if (SKY.uCloudReady.value > 0.5) return;
-  const t0 = performance.now();
-  const mat = new THREE.ShaderMaterial({
-    uniforms: { uZ: { value: 0 }, uMode: { value: 0 } },
-    vertexShader: GEN_VERT, fragmentShader: GEN_FRAG, depthTest: false, depthWrite: false,
-  });
-  const quad = new FullScreenQuad(mat);
-  const prev = renderer.getRenderTarget();
-  // r5: detail 32³ → 64³ (the trilinear 32³ worley read as blocky, cut-out cloud edges)
-  const shape = make3D(128), detail = make3D(64);
-  for (const [rt, n, mode] of [[shape, 128, 0], [detail, 64, 1]]) {
-    mat.uniforms.uMode.value = mode;
-    for (let z = 0; z < n; z++) {
-      mat.uniforms.uZ.value = (z + 0.5) / n;
-      renderer.setRenderTarget(rt, z);
-      quad.render(renderer);
-    }
-  }
-  renderer.setRenderTarget(prev);
-  quad.dispose(); mat.dispose();
-  SKY.tCloudShape.value = shape.texture;
-  SKY.tCloudDetail.value = detail.texture;
-  SKY.uCloudReady.value = 1;
-  console.log(`[sky] cloud noise generated in ${Math.round(performance.now() - t0)} ms`);
+  throw new Error('Cloud textures must be prepared before creating the engine');
 }

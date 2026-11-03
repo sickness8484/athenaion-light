@@ -11,6 +11,7 @@
     "assets": "node tools/fetch-upstream-assets.mjs",
     "bake": "node tools/fetch-upstream-assets.mjs && node tools/bake-site.mjs",
     "bake:high": "node tools/fetch-upstream-assets.mjs && node tools/bake-site.mjs --quality high",
+    "bake:clouds": "python3 tools/bake-clouds.py",
     "build": "node tools/build-site.mjs",
     "check": "node tools/check.mjs",
     "verify": "node tools/verify-site.mjs"

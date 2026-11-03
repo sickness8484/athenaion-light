@@ -8,6 +8,7 @@ import { createGunzip } from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
 import { Writable } from 'node:stream';
 import { moduleEntryFromHTML, sourceScriptDirectory } from './build-site.mjs';
+import { verifyCloudAssets } from './cloud-assets.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
@@ -25,10 +26,14 @@ for (const [name, entry] of Object.entries(manifest.geometries)) {
   if (fs.statSync(file).size !== entry.bytes) throw new Error(`Compressed byte count mismatch: ${name}`);
   let bytes = 0;
   const hash = createHash('sha256');
-  await pipeline(fs.createReadStream(file), createGunzip(), new Writable({ write(chunk, _encoding, done) { bytes += chunk.length; hash.update(chunk); done(); } }));
+  try {
+    await pipeline(fs.createReadStream(file), createGunzip(), new Writable({ write(chunk, _encoding, done) { bytes += chunk.length; hash.update(chunk); done(); } }));
+  } catch (cause) { throw new Error(`Invalid compressed geometry: ${name}`, { cause }); }
   if (bytes !== entry.rawBytes || hash.digest('hex') !== entry.sha256) throw new Error(`Lossless round-trip failed: ${name}`);
   verified++;
 }
 for (const name of Object.values(manifest.terrain)) if (!manifest.geometries[name]) throw new Error(`Terrain is absent from release: ${name}`);
+const clouds = await verifyCloudAssets(path.join(DIST, 'assets/cloud-noise'), path.join(DIST, scriptDirectory, 'core/sky.js'));
+if (buildInfo.cloudShaderHash !== clouds.manifest.sourceHash || buildInfo.rawCloudTextureBytes !== clouds.rawBytes || buildInfo.compressedCloudTextureBytes !== clouds.compressedBytes) throw new Error('Cloud release report does not match published assets');
 for (const file of ['index.html', 'LICENSE', '.nojekyll', entry, 'vendor/three/build/three.module.js', 'vendor/three/build/three.core.js', 'vendor/three/examples/jsm/controls/OrbitControls.js']) if (!fs.statSync(path.join(DIST, file)).isFile()) throw new Error(`Missing static asset: ${file}`);
-console.log(`[verify] ${verified} geometry assets passed gzip + SHA-256 round-trip verification; required Pages assets and ${scriptDirectory} are present.`);
+console.log(`[verify] ${verified} geometry assets and 2 cloud volumes passed gzip + SHA-256 round-trip verification; required Pages assets and ${scriptDirectory} are present.`);

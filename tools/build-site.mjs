@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createGzip } from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
+import { verifyCloudAssets } from './cloud-assets.mjs';
 
 function filesBelow(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -60,6 +61,7 @@ export async function buildSite() {
   if (expectedPlan.names.length !== Object.keys(baked.geometries || {}).length || expectedPlan.names.some((name) => !baked.geometries[name])) throw new Error('The bake manifest does not include every required original-quality asset. Run npm run bake again.');
   for (const [quality, name] of Object.entries(expectedPlan.terrain)) if (baked.terrain[quality] !== name) throw new Error(`Outdated ${quality} terrain name in bake manifest.`);
   if (!fs.existsSync(path.join(ROOT, 'node_modules/three/build/three.module.js'))) throw new Error('Three.js is not installed. Run npm ci.');
+  const cloudBake = await verifyCloudAssets(path.join(GENERATED, 'cloud-noise'), path.join(ROOT, 'src/core/sky.js'));
 
   fs.rmSync(DIST, { recursive: true, force: true });
   fs.mkdirSync(path.join(DIST, 'generated'), { recursive: true });
@@ -95,6 +97,7 @@ export async function buildSite() {
   copy('node_modules/three/LICENSE', 'vendor/three/LICENSE');
   copy('LICENSE');
   for (const name of ['index.html', 'favicon.svg', 'favicon.ico', 'styles.css', 'assets']) if (fs.existsSync(path.join(ROOT, name))) copy(name);
+  for (const file of cloudBake.files) copy(`generated/cloud-noise/${file}`, `assets/cloud-noise/${file}`);
   const indexPath = path.join(DIST, 'index.html');
   fs.writeFileSync(indexPath, versionSourceEntry(fs.readFileSync(indexPath, 'utf8'), scriptDirectory));
   fs.writeFileSync(path.join(DIST, '.nojekyll'), '');
@@ -139,7 +142,7 @@ export async function buildSite() {
   const index = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
   if (!index.includes('./vendor/three/build/three.module.js') || moduleEntryFromHTML(index) !== `./${scriptDirectory}/main.js`) throw new Error('index.html must use relative vendor and versioned source URLs for GitHub Pages project paths.');
   if (/\b(?:src|href)=["']\/(?!\/)/.test(index)) throw new Error('A root-relative HTML asset URL would break GitHub Pages project paths.');
-  const report = { files: files.length + 1, siteBytes: contentBytes, geometryFiles: Object.keys(geometries).length, rawGeometryBytes: rawBytes, compressedGeometryBytes: compressedBytes, losslessSavingsPercent: +((1 - compressedBytes / rawBytes) * 100).toFixed(1), terrainQualities: Object.keys(baked.terrain), sourceHash: baked.sourceHash, scriptDirectory, publishedFiles: [...publishedFiles, 'build-info.json'].sort() };
+  const report = { files: files.length + 1, siteBytes: contentBytes, geometryFiles: Object.keys(geometries).length, rawGeometryBytes: rawBytes, compressedGeometryBytes: compressedBytes, losslessSavingsPercent: +((1 - compressedBytes / rawBytes) * 100).toFixed(1), cloudTextureFiles: 2, rawCloudTextureBytes: cloudBake.rawBytes, compressedCloudTextureBytes: cloudBake.compressedBytes, cloudShaderHash: cloudBake.manifest.sourceHash, terrainQualities: Object.keys(baked.terrain), sourceHash: baked.sourceHash, scriptDirectory, publishedFiles: [...publishedFiles, 'build-info.json'].sort() };
   const reportPath = path.join(DIST, 'build-info.json');
   // Count the report itself, including the decimal digits of its own byte count.
   for (;;) {

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { startServer } from './serve.mjs';
 import { moduleEntryFromHTML } from './build-site.mjs';
+import { validateCloudTextureManifest } from '../src/core/cloud-textures.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export async function verifySiteHTTP(root = ROOT, { serve = startServer, request = fetch } = {}) {
@@ -61,11 +62,21 @@ export async function verifySiteHTTP(root = ROOT, { serve = startServer, request
     let bytes = 0;
     for await (const chunk of compressed.body.pipeThrough(new DecompressionStream('gzip'))) { bytes += chunk.byteLength; hash.update(chunk); }
     if (bytes !== entry.rawBytes || hash.digest('hex') !== entry.sha256) throw new Error('HTTP gzip stream changed terrain bytes');
-    return { requests, modules: pending.size, workers: workers.size, scriptDirectory, terrainBytes: bytes };
+    const clouds = validateCloudTextureManifest(await (await get('assets/cloud-noise/manifest.json')).json());
+    let cloudBytes = 0;
+    for (const [name, volume] of Object.entries(clouds.textures)) {
+      const response = await get('assets/cloud-noise/' + volume.file);
+      const digest = createHash('sha256');
+      let decoded = 0;
+      for await (const chunk of response.body.pipeThrough(new DecompressionStream('gzip'))) { decoded += chunk.byteLength; digest.update(chunk); }
+      if (decoded !== volume.rawBytes || digest.digest('hex') !== volume.sha256) throw new Error(`HTTP gzip stream changed ${name} cloud bytes`);
+      cloudBytes += decoded;
+    }
+    return { requests, modules: pending.size, workers: workers.size, scriptDirectory, terrainBytes: bytes, cloudBytes };
   } finally { await server.close(); }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const result = await verifySiteHTTP();
-  console.log(`[verify:http] ${result.requests} HTTP responses and ${result.modules} browser modules (${result.workers} workers) work below /dist/ via ${result.scriptDirectory}; ${result.terrainBytes} terrain bytes survived streamed gzip download.`);
+  console.log(`[verify:http] ${result.requests} HTTP responses and ${result.modules} browser modules (${result.workers} workers) work below /dist/ via ${result.scriptDirectory}; ${result.terrainBytes} terrain bytes and ${result.cloudBytes} cloud bytes survived streamed gzip download.`);
 }

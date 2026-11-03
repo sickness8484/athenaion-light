@@ -160,7 +160,12 @@ export class ChunkedBuilders {
     }
     return b;
   }
-  /** → array of meshes; mats = { name: material } */
+  /**
+   * → array of meshes; mats = { name: material }.
+   * consume releases each completed builder after toMesh() has copied its data.
+   * Use it at the final build step: scene hooks can retain the surrounding context,
+   * which otherwise keeps both the growable construction buffers and mesh buffers.
+   */
   meshes(mats, opts = {}) {
     const out = [];
     let tris = 0;
@@ -172,6 +177,7 @@ export class ChunkedBuilders {
       if (opts.noShadowMats && opts.noShadowMats.includes(b.mat)) { mesh.castShadow = false; mesh.userData.castShadow = false; }
       tris += b.tris;
       out.push(mesh);
+      if (opts.consume) this.map.delete(k);
     }
     this.tris = tris;
     return out;

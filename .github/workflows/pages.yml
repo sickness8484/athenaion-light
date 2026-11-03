@@ -63,7 +63,13 @@ jobs:
             npm run bake
           fi
       - name: Package lossless static assets
-        run: npm run build
+        # Bake on the runner, never on a visitor's GPU. The source shader and
+        # original RGBA8 volume dimensions are verified again during packaging.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1-mesa-dri
+          npm run bake:clouds
+          npm run build
       - name: Verify published bytes
         run: |
           node tools/verify-site.mjs

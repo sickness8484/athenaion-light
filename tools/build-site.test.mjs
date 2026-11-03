@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { moduleEntryFromHTML, sourceScriptDirectory, versionSourceEntry } from './build-site.mjs';
 import { verifySiteHTTP } from './verify-site-http.mjs';
+import { verifyCloudAssets, cloudShaderHash } from './cloud-assets.mjs';
 
 const put = (root, name, content) => {
   const file = path.join(root, name);
@@ -84,17 +85,38 @@ test('module verification discovers the hashed entry, dynamic world modules and 
     const sha256 = createHash('sha256').update(raw).digest('hex');
     put(root, 'dist/generated/fixture.bin.gz', gzipSync(raw));
     put(root, 'dist/generated/manifest.json', JSON.stringify({ terrain: { preview: 'fixture' }, geometries: { fixture: { file: 'fixture.bin.gz', rawBytes: raw.length, sha256 } } }));
+    const cloudShader = 'export const CLOUD_NOISE_FRAGMENT_SHADER = /* glsl */ `void main() {}`;';
+    put(root, `${prefix}/core/sky.js`, cloudShader);
+    const sourceFile = path.join(root, `${prefix}/core/sky.js`);
+    const clouds = { formatVersion: 1, sourceHash: cloudShaderHash(sourceFile), textures: {} };
+    for (const [name, size] of [['shape', 128], ['detail', 64]]) {
+      const volume = Buffer.alloc(size ** 3 * 4, size);
+      const sha256 = createHash('sha256').update(volume).digest('hex');
+      const file = `${name}-${size}.${sha256.slice(0, 12)}.rgba8.gz`;
+      const compressed = gzipSync(volume);
+      clouds.textures[name] = { size, rawBytes: volume.length, bytes: compressed.length, encoding: 'gzip', sha256, file };
+      put(root, 'dist/assets/cloud-noise/' + file, compressed);
+    }
+    put(root, 'dist/assets/cloud-noise/manifest.json', JSON.stringify(clouds));
     const result = await verifySiteHTTP(root, transport);
     assert.equal(result.scriptDirectory, directory);
     assert.equal(result.modules, 8);
     assert.equal(result.workers, 1);
     assert.equal(result.terrainBytes, raw.length);
+    assert.equal(result.cloudBytes, 9_437_184);
+    const cloudDirectory = path.join(root, 'dist/assets/cloud-noise');
+    assert.equal((await verifyCloudAssets(cloudDirectory, sourceFile)).rawBytes, result.cloudBytes);
+    put(root, `${prefix}/core/sky.js`, cloudShader.replace('void main()', 'void changed()'));
+    await assert.rejects(verifyCloudAssets(cloudDirectory, sourceFile), /do not match the authored shader/);
+    put(root, `${prefix}/core/sky.js`, cloudShader);
+    fs.unlinkSync(path.join(cloudDirectory, clouds.textures.detail.file));
+    await assert.rejects(verifySiteHTTP(root, transport), /detail-64.*HTTP 404/);
 
     fs.unlinkSync(path.join(root, `${prefix}/terrain/worker.js`));
     await assert.rejects(verifySiteHTTP(root, transport), /worker\.js: HTTP 404/);
     put(root, `${prefix}/terrain/worker.js`, 'import "./voxel.js";');
     fs.unlinkSync(path.join(root, `${prefix}/shared.js`));
     await assert.rejects(verifySiteHTTP(root, transport), /shared\.js: HTTP 404/);
-    assert.equal(closed, 3);
+    assert.equal(closed, 4);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

@@ -3,6 +3,7 @@ out/
 snapshots/
 audio/
 *.log
+__pycache__/
 .DS_Store
 Thumbs.db
 

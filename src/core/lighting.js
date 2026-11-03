@@ -50,6 +50,8 @@ export function sunColorForElevation(elDeg) {
 
 export class Lighting {
   constructor(engine) {
+    // Startup must load the baked volumes before constructing lighting or GPU resources.
+    ensureCloudTextures();
     this.engine = engine;
     const { scene, camera, quality } = engine;
     this.csm = new CSM({
@@ -100,7 +102,6 @@ export class Lighting {
       shadowFar: { value: Math.min(camera.far, this.csm.maxFar) },
     };
     this.refreshCSM();
-    try { ensureCloudTextures(engine.renderer); } catch (e) { console.warn('[sky] cloud noise generation failed', e); }
     this._syncSkyUniforms();
   }
 
@@ -190,7 +191,7 @@ export class Lighting {
   /** Build after sun/sky changes; repeated equivalent requests reuse the owned PMREM target. */
   buildEnvironment({ force = false } = {}) {
     const { renderer, scene } = this.engine;
-    try { ensureCloudTextures(renderer); } catch (e) { /* already warned */ }
+    ensureCloudTextures();
     const key = environmentKey();
     if (force || !this.envTarget || key !== this._environmentKey) {
       if (!this.pmrem) this.pmrem = new THREE.PMREMGenerator(renderer);
